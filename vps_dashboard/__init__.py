@@ -1,6 +1,7 @@
 from flask import Flask, redirect, url_for
 from flask_socketio import SocketIO
 import os
+import json
 from .utils import login_required # 导入 login_required
 
 socketio = SocketIO()
@@ -10,6 +11,14 @@ def create_app(debug=False):
     app = Flask(__name__, template_folder='templates')
     app.config.from_object('vps_dashboard.config')
     app.debug = debug
+
+    # 加载用户凭据
+    credentials_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'credentials.json')
+    try:
+        with open(credentials_path, 'r') as f:
+            app.config['USERS'] = json.load(f)
+    except FileNotFoundError:
+        app.config['USERS'] = {} # 如果文件不存在，则设置为空
 
     # 确保文件管理器根目录存在
     os.makedirs(app.config['FILE_MANAGER_ROOT'], exist_ok=True)

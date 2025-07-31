@@ -1,0 +1,139 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>仪表盘 - VPS-Lite-Dashboard</title>
+    <style>
+        body { font-family: sans-serif; margin: 2em; background-color: #f4f4f4; color: #333; }
+        .container { max-width: 900px; margin: auto; background: white; padding: 20px; border-radius: 8px; box-shadow: 0 0 10px rgba(0,0,0,0.1); }
+        h1, h2, h3 { color: #555; }
+        .nav-buttons { margin-bottom: 1em; }
+        .nav-buttons button { padding: 10px 15px; border: none; border-radius: 5px; cursor: pointer; background-color: #007bff; color: white; margin-right: 10px; }
+        .nav-buttons button:hover { background-color: #0056b3; }
+        .status-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 1em; margin-bottom: 1em; }
+        .status-card { background: #eee; padding: 15px; border-radius: 5px; }
+        .status-card h3 { margin-top: 0; }
+        .system-info p { margin: 0.5em 0; }
+        .cpu-core-list { list-style: none; padding: 0; margin-top: 0.5em; }
+        .cpu-core-list li { margin-bottom: 0.2em; }
+        .disk-partition-list { list-style: none; padding: 0; margin-top: 0.5em; }
+        .disk-partition-list li { margin-bottom: 0.2em; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>VPS-Lite-Dashboard - 仪表盘</h1>
+        <p><a href="/logout">退出登录</a></p>
+        <div class="nav-buttons">
+            <button onclick="location.href='/dashboard'">仪表盘</button>
+            <button onclick="location.href='/file_manager'">文件管理</button>
+            <button onclick="location.href='/process_manager'">进程管理</button>
+            <button onclick="location.href='/terminal'">Web终端</button>
+            <button onclick="location.href='/systemd_manager'">定时任务</button>
+        </div>
+
+        <h2>系统概览</h2>
+        <div class="status-grid">
+            <div class="status-card system-info">
+                <h3>系统信息</h3>
+                <p><strong>操作系统:</strong> <span id="os-info">加载中...</span></p>
+                <p><strong>主机名:</strong> <span id="hostname-info">加载中...</span></p>
+                <p><strong>运行时间:</strong> <span id="uptime-info">加载中...</span></p>
+            </div>
+            <div class="status-card">
+                <h3>CPU 占用</h3>
+                <p><strong>总览:</strong> <span id="cpu-overall">--%</span></p>
+                <p><strong>核心:</strong></p>
+                <ul id="cpu-percpu" class="cpu-core-list">
+                    <li>加载中...</li>
+                </ul>
+            </div>
+            <div class="status-card">
+                <h3>内存占用</h3>
+                <p><strong>总计:</strong> <span id="mem-total">--GB</span></p>
+                <p><strong>已用:</strong> <span id="mem-used">--GB</span></p>
+                <p><strong>可用:</strong> <span id="mem-available">--GB</span></p>
+                <p><strong>百分比:</strong> <span id="mem-percent">--%</span></p>
+            </div>
+            <div class="status-card">
+                <h3>磁盘占用</h3>
+                <ul id="disk-partitions" class="disk-partition-list">
+                    <li>加载中...</li>
+                </ul>
+            </div>
+            <div class="status-card">
+                <h3>网络流量</h3>
+                <p><strong>发送:</strong> <span id="net-sent">--KB</span></p>
+                <p><strong>接收:</strong> <span id="net-recv">--KB</span></p>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // 辅助函数：格式化字节大小
+        function formatBytes(bytes, decimals = 2) {
+            if (bytes === 0) return '0 Bytes';
+            const k = 1024;
+            const dm = decimals < 0 ? 0 : decimals;
+            const sizes = ['Bytes', 'KB', 'MB', 'GB', 'TB', 'PB', 'EB', 'ZB', 'YB'];
+            const i = Math.floor(Math.log(bytes) / Math.log(k));
+            return parseFloat((bytes / Math.pow(k, i)).toFixed(dm)) + ' ' + sizes[i];
+        }
+
+        async function fetchSystemInfo() {
+            try {
+                const response = await fetch('/dashboard/system_info');
+                const data = await response.json();
+
+                if (data.status === 'success') {
+                    // 系统信息
+                    document.getElementById('os-info').textContent = `${data.system.os} ${data.system.os_release} (${data.system.os_version})`;
+                    document.getElementById('hostname-info').textContent = data.system.hostname;
+                    document.getElementById('uptime-info').textContent = data.system.uptime;
+
+                    // CPU
+                    document.getElementById('cpu-overall').textContent = `${data.cpu.overall.toFixed(1)}%`;
+                    const cpuPercpuList = document.getElementById('cpu-percpu');
+                    cpuPercpuList.innerHTML = '';
+                    data.cpu.percpu.forEach((percent, index) => {
+                        const li = document.createElement('li');
+                        li.textContent = `核心 ${index}: ${percent.toFixed(1)}%`;
+                        cpuPercpuList.appendChild(li);
+                    });
+
+                    // 内存
+                    document.getElementById('mem-total').textContent = formatBytes(data.memory.total);
+                    document.getElementById('mem-used').textContent = formatBytes(data.memory.used);
+                    document.getElementById('mem-available').textContent = formatBytes(data.memory.available);
+                    document.getElementById('mem-percent').textContent = `${data.memory.percent.toFixed(1)}%`;
+
+                    // 磁盘
+                    const diskPartitionsList = document.getElementById('disk-partitions');
+                    diskPartitionsList.innerHTML = '';
+                    data.disk.forEach(disk => {
+                        const li = document.createElement('li');
+                        li.textContent = `${disk.mountpoint} (${disk.device}): ${formatBytes(disk.used)} / ${formatBytes(disk.total)} (${disk.percent.toFixed(1)}%)`;
+                        diskPartitionsList.appendChild(li);
+                    });
+
+                    // 网络
+                    document.getElementById('net-sent').textContent = formatBytes(data.network.bytes_sent);
+                    document.getElementById('net-recv').textContent = formatBytes(data.network.bytes_recv);
+
+                } else {
+                    console.error('Error fetching system info:', data.message);
+                }
+            } catch (error) {
+                console.error('Error fetching system info:', error);
+            }
+        }
+
+        // 页面加载和定时刷新
+        document.addEventListener('DOMContentLoaded', () => {
+            fetchSystemInfo();
+            setInterval(fetchSystemInfo, 5000); // 每5秒更新一次
+        });
+    </script>
+</body>
+</html>

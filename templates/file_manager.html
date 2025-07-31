@@ -1,0 +1,759 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>文件管理器</title>
+    <style>
+        body { font-family: sans-serif; margin: 2em; background-color: #f4f4f4; color: #333; }
+        .container { max-width: 900px; margin: auto; background: white; padding: 20px; border-radius: 8px; box-shadow: 0 0 10px rgba(0,0,0,0.1); }
+        h1, h2, h3 { color: #555; }
+        .nav-buttons { margin-bottom: 1em; }
+        .nav-buttons button { padding: 10px 15px; border: none; border-radius: 5px; cursor: pointer; background-color: #007bff; color: white; margin-right: 10px; }
+        .nav-buttons button:hover { background-color: #0056b3; }
+        .file-actions { margin-bottom: 1em; display: flex; flex-wrap: wrap; gap: 10px; align-items: center; }
+        .file-actions input[type="text"] { flex-grow: 1; padding: 8px; border: 1px solid #ddd; border-radius: 4px; }
+        .file-actions button, .file-actions input[type="file"] { padding: 8px 12px; border: none; border-radius: 4px; background-color: #007bff; color: white; cursor: pointer; }
+        .file-actions button:hover { background-color: #0056b3; }
+        .file-actions input[type="file"] { background-color: #28a745; }
+        .file-actions input[type="file"]:hover { background-color: #218838; }
+
+        table { width: 100%; border-collapse: collapse; margin-top: 1em; }
+        th, td { padding: 8px; border: 1px solid #ddd; text-align: left; }
+        th { background-color: #f2f2f2; }
+        .file-item-name a { text-decoration: none; color: #007bff; }
+        .file-item-name a:hover { text-decoration: underline; }
+        .action-buttons button { margin-right: 5px; padding: 6px 10px; border-radius: 4px; border: 1px solid #ccc; background-color: #f0f0f0; cursor: pointer; }
+        .action-buttons button:hover { background-color: #e0e0e0; }
+        .action-buttons .delete-btn { background-color: #dc3545; color: white; border-color: #dc3545; }
+        .action-buttons .delete-btn:hover { background-color: #c82333; }
+        .current-path { font-size: 1.2em; margin-bottom: 1em; }
+
+        /* 模态框通用样式 */
+        .modal {
+            display: none; /* 默认隐藏 */
+            position: fixed; /* 固定定位 */
+            z-index: 1; /* 位于顶部 */
+            left: 0;
+            top: 0;
+            width: 100%; /* 满宽 */
+            height: 100%; /* 满高 */
+            overflow: auto; /* 如果内容过多，允许滚动 */
+            background-color: rgba(0,0,0,0.4); /* 黑色半透明背景 */
+        }
+        .modal-content {
+            background-color: #fefefe;
+            margin: 5% auto; /* 距顶部15%，水平居中 */
+            padding: 20px;
+            border: 1px solid #888;
+            width: 80%; /* 宽度 */
+            max-width: 800px;
+            border-radius: 8px;
+            position: relative;
+        }
+        .close-button {
+            color: #aaa;
+            float: right;
+            font-size: 28px;
+            font-weight: bold;
+        }
+        .close-button:hover,
+        .close-button:focus {
+            color: black;
+            text-decoration: none;
+            cursor: pointer;
+        }
+        
+        /* 编辑器模态框样式 */
+        #editor-textarea {
+            width: 100%;
+            height: 400px;
+            font-family: monospace;
+            font-size: 0.9em;
+            padding: 10px;
+            border: 1px solid #ccc;
+            border-radius: 4px;
+            box-sizing: border-box; /* 包含padding和border在宽度内 */
+            resize: vertical; /* 允许垂直调整大小 */
+        }
+        .editor-buttons {
+            margin-top: 1em;
+            text-align: right;
+        }
+        .editor-buttons button {
+            padding: 8px 15px;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+        }
+        .editor-buttons .save-btn { background-color: #28a745; color: white; }
+        .editor-buttons .cancel-btn { background-color: #6c757d; color: white; }
+
+        /* 权限模态框样式 */
+        #permissions-modal-content {
+            text-align: left;
+        }
+        #permissions-modal-content input[type="text"] {
+            width: calc(100% - 22px);
+            padding: 8px;
+            margin-top: 5px;
+            margin-bottom: 10px;
+            border: 1px solid #ccc;
+            border-radius: 4px;
+        }
+        .permission-rwx {
+            display: flex;
+            justify-content: space-around;
+            margin-bottom: 1em;
+        }
+        .permission-group {
+            border: 1px solid #ddd;
+            padding: 10px;
+            border-radius: 5px;
+        }
+        .permission-group label {
+            display: block;
+        }
+
+        /* 压缩/解压模态框样式 */
+        #compress-modal-content, #decompress-modal-content {
+            text-align: left;
+        }
+        #compress-modal-content select {
+            width: 100%;
+            padding: 8px;
+            margin-bottom: 10px;
+            border: 1px solid #ccc;
+            border-radius: 4px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>文件管理器</h1>
+        <p><a href="/logout">退出登录</a></p>
+        <div class="nav-buttons">
+            <button onclick="location.href='/dashboard'">仪表盘</button>
+            <button onclick="location.href='/file_manager'">文件管理</button>
+            <button onclick="location.href='/process_manager'">进程管理</button>
+            <button onclick="location.href='/terminal'">Web终端</button>
+            <button onclick="location.href='/systemd_manager'">定时任务</button>
+        </div>
+        <h3 class="current-path" id="current-path">/</h3>
+
+        <div class="file-actions">
+            <input type="text" id="new-folder-name" placeholder="新文件夹名称">
+            <button onclick="createFolder()">创建文件夹</button>
+            <input type="file" id="fileUploadInput">
+            <button onclick="uploadFile()">上传文件</button>
+             <button onclick="createNewFile()">新建文件</button>
+        </div>
+
+        <table>
+            <thead>
+                <tr>
+                    <th>名称</th>
+                    <th>类型</th>
+                    <th>大小</th>
+                    <th>最后修改时间</th>
+                    <th>权限</th>
+                    <th>操作</th>
+                </tr>
+            </thead>
+            <tbody id="file-list">
+                <!-- 文件列表将由JavaScript填充 -->
+            </tbody>
+        </table>
+    </div>
+
+    <!-- 文件编辑器模态框 -->
+    <div id="file-editor-modal" class="modal">
+        <div class="modal-content">
+            <span class="close-button" onclick="closeEditorModal()">&times;</span>
+            <h2>编辑文件: <span id="editing-file-path"></span></h2>
+            <textarea id="editor-textarea"></textarea>
+            <div class="editor-buttons">
+                <button class="save-btn" onclick="saveFileContent()">保存</button>
+                <button class="cancel-btn" onclick="closeEditorModal()">取消</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- 权限设置模态框 -->
+    <div id="permissions-modal" class="modal">
+        <div class="modal-content" id="permissions-modal-content">
+            <span class="close-button" onclick="closePermissionsModal()">&times;</span>
+            <h2>设置权限: <span id="permissions-file-path"></span></h2>
+            <label for="octal-permission">八进制权限 (例如: 755):</label>
+            <input type="text" id="octal-permission" maxlength="4" pattern="[0-7]{3,4}" title="请输入3或4位八进制权限码 (例如 755)">
+            
+            <div class="permission-rwx">
+                <div class="permission-group">
+                    <h4>所有者 (Owner)</h4>
+                    <label><input type="checkbox" id="owner-read"> 读取 (r)</label>
+                    <label><input type="checkbox" id="owner-write"> 写入 (w)</label>
+                    <label><input type="checkbox" id="owner-execute"> 执行 (x)</label>
+                </div>
+                <div class="permission-group">
+                    <h4>组 (Group)</h4>
+                    <label><input type="checkbox" id="group-read"> 读取 (r)</label>
+                    <label><input type="checkbox" id="group-write"> 写入 (w)</label>
+                    <label><input type="checkbox" id="group-execute"> 执行 (x)</label>
+                </div>
+                <div class="permission-group">
+                    <h4>其他 (Others)</h4>
+                    <label><input type="checkbox" id="others-read"> 读取 (r)</label>
+                    <label><input type="checkbox" id="others-write"> 写入 (w)</label>
+                    <label><input type="checkbox" id="others-execute"> 执行 (x)</label>
+                </div>
+            </div>
+
+            <div class="editor-buttons">
+                <button class="save-btn" onclick="savePermissions()">保存</button>
+                <button class="cancel-btn" onclick="closePermissionsModal()">取消</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- 压缩模态框 -->
+    <div id="compress-modal" class="modal">
+        <div class="modal-content" id="compress-modal-content">
+            <span class="close-button" onclick="closeCompressModal()">&times;</span>
+            <h2>压缩: <span id="compress-file-path"></span></h2>
+            <label for="compress-format">选择压缩格式:</label>
+            <select id="compress-format">
+                <option value="zip">.zip</option>
+                <option value="tar.gz">.tar.gz</option>
+            </select>
+            <div class="editor-buttons">
+                <button class="save-btn" onclick="performCompress()">压缩</button>
+                <button class="cancel-btn" onclick="closeCompressModal()">取消</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- 解压模态框 -->
+    <div id="decompress-modal" class="modal">
+        <div class="modal-content" id="decompress-modal-content">
+            <span class="close-button" onclick="closeDecompressModal()">&times;</span>
+            <h2>解压: <span id="decompress-file-path"></span></h2>
+            <p>文件将解压到当前目录。</p>
+            <div class="editor-buttons">
+                <button class="save-btn" onclick="performDecompress()">解压</button>
+                <button class="cancel-btn" onclick="closeDecompressModal()">取消</button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        let currentEditingFilePath = ''; // 用于保存当前编辑的文件路径
+        let currentPermissionsPath = ''; // 用于保存当前设置权限的文件路径
+        let currentCompressPath = ''; // 用于保存当前压缩的文件/文件夹路径
+        let currentDecompressPath = ''; // 用于保存当前解压的文件路径
+
+        document.addEventListener('DOMContentLoaded', () => {
+            fetchFiles(''); // 页面加载时获取根目录文件
+        });
+
+        async function fetchFiles(path) {
+            try {
+                const response = await fetch(`/file_manager/files?path=${encodeURIComponent(path)}`);
+                const files = await response.json();
+                const fileList = document.getElementById('file-list');
+                const currentPathEl = document.getElementById('current-path');
+                
+                currentPathEl.textContent = `当前路径: /${path}`;
+                fileList.innerHTML = ''; // 清空现有列表
+
+                if (files.status === 'error') {
+                    alert('错误: ' + files.message);
+                    return;
+                }
+
+                files.forEach(file => {
+                    const row = fileList.insertRow();
+                    
+                    const nameCell = row.insertCell();
+                    nameCell.className = 'file-item-name';
+                    const link = document.createElement('a');
+                    link.href = '#';
+                    link.textContent = `${file.type === 'directory' ? '📁' : '📄'} ${file.name}`;
+                    if (file.type === 'directory') {
+                        link.onclick = (e) => {
+                            e.preventDefault();
+                            fetchFiles(file.path);
+                        };
+                    }
+                    nameCell.appendChild(link);
+
+                    row.insertCell().textContent = file.type === 'directory' ? '文件夹' : '文件';
+                    row.insertCell().textContent = file.size !== null ? formatBytes(file.size) : 'N/A';
+                    row.insertCell().textContent = file.last_modified ? new Date(file.last_modified).toLocaleString() : 'N/A';
+                    row.insertCell().textContent = file.permissions ? file.permissions.slice(-3) : 'N/A'; // 显示后三位八进制权限
+
+                    const actionsCell = row.insertCell();
+                    actionsCell.className = 'action-buttons';
+
+                    if (file.type === 'file') {
+                        const downloadButton = document.createElement('button');
+                        downloadButton.textContent = '下载';
+                        downloadButton.onclick = () => {
+                            window.location.href = `/file_manager/files/download?path=${encodeURIComponent(file.path)}`;
+                        };
+                        actionsCell.appendChild(downloadButton);
+
+                        // 简单的文本文件判断，可根据实际文件类型扩展
+                        if (file.name.match(/\.(txt|log|conf|config|json|py|sh|js|css|html|xml|md)$/i)) {
+                            const editButton = document.createElement('button');
+                            editButton.textContent = '编辑';
+                            editButton.onclick = () => openFileInEditor(file.path);
+                            actionsCell.appendChild(editButton);
+                        }
+
+                        // 判断是否是压缩文件
+                        if (file.name.match(/\.(zip|tar\.gz)$/i)) {
+                            const decompressButton = document.createElement('button');
+                            decompressButton.textContent = '解压';
+                            decompressButton.onclick = () => openDecompressModal(file.path);
+                            actionsCell.appendChild(decompressButton);
+                        }
+                    }
+                    
+                    if (file.name !== '..') { // 不允许重命名、删除、设置“..”的权限或压缩
+                        const renameButton = document.createElement('button');
+                        renameButton.textContent = '重命名';
+                        renameButton.onclick = () => renameFile(file.path, file.name);
+                        actionsCell.appendChild(renameButton);
+
+                        const deleteButton = document.createElement('button');
+                        deleteButton.textContent = '删除';
+                        deleteButton.className = 'delete-btn';
+                        deleteButton.onclick = () => deleteFile(file.path);
+                        actionsCell.appendChild(deleteButton);
+
+                        const permissionsButton = document.createElement('button');
+                        permissionsButton.textContent = '权限';
+                        permissionsButton.onclick = () => openPermissionsModal(file.path);
+                        actionsCell.appendChild(permissionsButton);
+
+                        const compressButton = document.createElement('button');
+                        compressButton.textContent = '压缩';
+                        compressButton.onclick = () => openCompressModal(file.path);
+                        actionsCell.appendChild(compressButton);
+                    }
+                });
+            } catch (error) {
+                console.error('Error fetching files:', error);
+                alert('获取文件列表时发生错误。');
+            }
+        }
+        
+        async function createFolder() {
+            const folderNameInput = document.getElementById('new-folder-name');
+            const folderName = folderNameInput.value.trim();
+            const currentPath = document.getElementById('current-path').textContent.replace('当前路径: /', '');
+            const path = (currentPath ? currentPath + '/' : '') + folderName;
+
+            if (!folderName) {
+                alert('请输入文件夹名称。');
+                return;
+            }
+
+            try {
+                const response = await fetch('/file_manager/files/create_folder', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ path: path })
+                });
+                const result = await response.json();
+                if (result.status === 'success') {
+                    alert(result.message);
+                    folderNameInput.value = '';
+                    fetchFiles(currentPath);
+                } else {
+                    alert('创建失败: ' + result.message);
+                }
+            } catch (error) {
+                console.error('Error creating folder:', error);
+                alert('创建文件夹时发生错误。');
+            }
+        }
+
+        async function renameFile(oldPath, oldName) {
+            const newName = prompt(`输入新的名称，原名称为 "${oldName}":`, oldName);
+            if (newName === null || newName.trim() === '' || newName === oldName) {
+                return; // 用户取消或未做更改
+            }
+            
+            const currentPath = document.getElementById('current-path').textContent.replace('当前路径: /', '');
+            const newPath = (currentPath ? currentPath + '/' : '') + newName.trim();
+
+            try {
+                const response = await fetch('/file_manager/files/rename', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ old_path: oldPath, new_path: newPath })
+                });
+                const result = await response.json();
+                if (result.status === 'success') {
+                    alert(result.message);
+                    fetchFiles(currentPath);
+                } else {
+                    alert('重命名失败: ' + result.message);
+                }
+            } catch (error) {
+                console.error('Error renaming file:', error);
+                alert('重命名文件时发生错误。');
+            }
+        }
+
+        async function deleteFile(path) {
+            if (!confirm(`确定要删除 ${path} 吗？此操作不可逆！`)) {
+                return;
+            }
+            try {
+                const response = await fetch('/file_manager/files/delete', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ path: path })
+                });
+                const result = await response.json();
+                if (result.status === 'success') {
+                    alert(result.message);
+                    const currentPath = document.getElementById('current-path').textContent.replace('当前路径: /', '');
+                    fetchFiles(currentPath);
+                } else {
+                    alert('删除失败: ' + result.message);
+                }
+            } catch (error) {
+                console.error('Error deleting file:', error);
+                alert('删除文件时发生错误。');
+            }
+        }
+
+        async function uploadFile() {
+            const fileInput = document.getElementById('fileUploadInput');
+            const file = fileInput.files[0];
+            const currentPath = document.getElementById('current-path').textContent.replace('当前路径: /', '');
+
+            if (!file) {
+                alert('请选择一个文件。');
+                return;
+            }
+
+            const formData = new FormData();
+            formData.append('file', file);
+            formData.append('path', currentPath);
+
+            try {
+                const response = await fetch('/file_manager/files/upload', {
+                    method: 'POST',
+                    body: formData
+                });
+                const result = await response.json();
+                if (result.status === 'success') {
+                    alert(result.message);
+                    fetchFiles(currentPath);
+                } else {
+                    alert('上传失败: ' + result.message);
+                }
+            } catch (error) {
+                console.error('Error uploading file:', error);
+                alert('上传文件时发生错误。');
+            }
+        }
+
+        async function createNewFile() {
+            const fileName = prompt("请输入新文件的名称 (例如: new_file.txt):");
+            if (fileName === null || fileName.trim() === '') {
+                return;
+            }
+
+            const currentPath = document.getElementById('current-path').textContent.replace('当前路径: /', '');
+            const filePath = (currentPath ? currentPath + '/' : '') + fileName.trim();
+            
+            // 尝试创建一个空文件
+            try {
+                const response = await fetch('/file_manager/files/save_content', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ path: filePath, content: '' }) // 创建一个空文件
+                });
+                const result = await response.json();
+                if (result.status === 'success') {
+                    alert(result.message);
+                    fetchFiles(currentPath); // 刷新文件列表
+                    // 自动打开新创建的文件进行编辑
+                    openFileInEditor(filePath);
+                } else {
+                    alert('创建新文件失败: ' + result.message);
+                }
+            } catch (error) {
+                console.error('Error creating new file:', error);
+                alert('创建新文件时发生错误。');
+            }
+        }
+
+        async function openFileInEditor(filePath) {
+            try {
+                const response = await fetch(`/file_manager/files/get_content?path=${encodeURIComponent(filePath)}`);
+                const data = await response.json();
+
+                if (data.status === 'success') {
+                    document.getElementById('editing-file-path').textContent = filePath;
+                    document.getElementById('editor-textarea').value = data.content;
+                    currentEditingFilePath = filePath; // 保存当前编辑的文件路径
+                    document.getElementById('file-editor-modal').style.display = 'block'; // 显示模态框
+                } else {
+                    alert('读取文件失败: ' + data.message);
+                }
+            } catch (error) {
+                console.error('Error opening file in editor:', error);
+                alert('打开文件编辑器时发生错误。');
+            }
+        }
+
+        async function saveFileContent() {
+            const content = document.getElementById('editor-textarea').value;
+            if (!currentEditingFilePath) {
+                alert('没有要保存的文件路径。');
+                return;
+            }
+
+            try {
+                const response = await fetch('/file_manager/files/save_content', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ path: currentEditingFilePath, content: content })
+                });
+                const result = await response.json();
+                if (result.status === 'success') {
+                    alert(result.message);
+                    closeEditorModal(); // 保存成功后关闭编辑器
+                    const currentPath = document.getElementById('current-path').textContent.replace('当前路径: /', '');
+                    fetchFiles(currentPath); // 刷新文件列表以更新文件大小/修改时间
+                } else {
+                    alert('保存文件失败: ' + result.message);
+                }
+            } catch (error) {
+                console.error('Error saving file content:', error);
+                alert('保存文件内容时发生错误。');
+            }
+        }
+
+        function closeEditorModal() {
+            document.getElementById('file-editor-modal').style.display = 'none';
+            document.getElementById('editor-textarea').value = ''; // 清空内容
+            currentEditingFilePath = ''; // 清空当前编辑文件路径
+        }
+
+        // --- 权限管理功能 ---
+        async function openPermissionsModal(filePath) {
+            currentPermissionsPath = filePath;
+            document.getElementById('permissions-file-path').textContent = filePath;
+            document.getElementById('octal-permission').value = ''; // 清空八进制输入框
+            resetPermissionCheckboxes(); // 清空复选框
+
+            try {
+                const response = await fetch(`/file_manager/files/permissions?path=${encodeURIComponent(filePath)}`);
+                const data = await response.json();
+                if (data.status === 'success') {
+                    const octal = data.permissions.slice(-3); // 获取后三位八进制权限
+                    document.getElementById('octal-permission').value = octal;
+                    updateCheckboxesFromOctal(octal);
+                } else {
+                    alert('获取权限失败: ' + data.message);
+                }
+            } catch (error) {
+                console.error('Error fetching permissions:', error);
+                alert('获取权限时发生错误。');
+            }
+            document.getElementById('permissions-modal').style.display = 'block';
+        }
+
+        function closePermissionsModal() {
+            document.getElementById('permissions-modal').style.display = 'none';
+            currentPermissionsPath = '';
+        }
+
+        async function savePermissions() {
+            const octalInput = document.getElementById('octal-permission').value.trim();
+            if (!octalInput.match(/^[0-7]{3,4}$/)) {
+                alert('请输入有效的3或4位八进制权限码 (例如 755)。');
+                return;
+            }
+
+            try {
+                const response = await fetch('/file_manager/files/permissions', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ path: currentPermissionsPath, permissions: octalInput })
+                });
+                const result = await response.json();
+                if (result.status === 'success') {
+                    alert(result.message);
+                    closePermissionsModal();
+                    const currentPath = document.getElementById('current-path').textContent.replace('当前路径: /', '');
+                    fetchFiles(currentPath); // 刷新文件列表以更新权限显示
+                } else {
+                    alert('保存权限失败: ' + result.message);
+                }
+            } catch (error) {
+                console.error('Error saving permissions:', error);
+                alert('保存权限时发生错误。');
+            }
+        }
+
+        function octalToBinary(octal) {
+            // 将八进制字符串转换为9位二进制字符串
+            return parseInt(octal, 8).toString(2).padStart(9, '0');
+        }
+
+        function binaryToOctal(binary) {
+            // 将9位二进制字符串转换为八进制
+            return parseInt(binary, 2).toString(8).padStart(3, '0');
+        }
+
+        function updateCheckboxesFromOctal(octal) {
+            resetPermissionCheckboxes();
+            if (!octal || octal.length < 3) return;
+            const binary = octalToBinary(octal.slice(-3)); // 只取后三位
+
+            const checkboxes = [
+                document.getElementById('owner-read'), document.getElementById('owner-write'), document.getElementById('owner-execute'),
+                document.getElementById('group-read'), document.getElementById('group-write'), document.getElementById('group-execute'),
+                document.getElementById('others-read'), document.getElementById('others-write'), document.getElementById('others-execute')
+            ];
+
+            for (let i = 0; i < 9; i++) {
+                checkboxes[i].checked = binary[i] === '1';
+            }
+        }
+
+        function updateOctalFromCheckboxes() {
+            const checkboxes = [
+                document.getElementById('owner-read'), document.getElementById('owner-write'), document.getElementById('owner-execute'),
+                document.getElementById('group-read'), document.getElementById('group-write'), document.getElementById('group-execute'),
+                document.getElementById('others-read'), document.getElementById('others-write'), document.getElementById('others-execute')
+            ];
+            let binary = '';
+            checkboxes.forEach(cb => {
+                binary += cb.checked ? '1' : '0';
+            });
+            document.getElementById('octal-permission').value = binaryToOctal(binary);
+        }
+
+        function resetPermissionCheckboxes() {
+            const checkboxes = [
+                document.getElementById('owner-read'), document.getElementById('owner-write'), document.getElementById('owner-execute'),
+                document.getElementById('group-read'), document.getElementById('group-write'), document.getElementById('group-execute'),
+                document.getElementById('others-read'), document.getElementById('others-write'), document.getElementById('others-execute')
+            ];
+            checkboxes.forEach(cb => cb.checked = false);
+        }
+
+        // 监听八进制输入框的变化
+        document.getElementById('octal-permission').addEventListener('input', (event) => {
+            const octal = event.target.value.trim();
+            if (octal.match(/^[0-7]{3,4}$/)) {
+                updateCheckboxesFromOctal(octal.slice(-3));
+            } else {
+                resetPermissionCheckboxes();
+            }
+        });
+
+        // 监听复选框的变化
+        document.querySelectorAll('.permission-group input[type="checkbox"]').forEach(checkbox => {
+            checkbox.addEventListener('change', updateOctalFromCheckboxes);
+        });
+
+        // --- 压缩/解压功能 ---
+        async function openCompressModal(filePath) {
+            currentCompressPath = filePath;
+            document.getElementById('compress-file-path').textContent = filePath;
+            document.getElementById('compress-modal').style.display = 'block';
+        }
+
+        function closeCompressModal() {
+            document.getElementById('compress-modal').style.display = 'none';
+            currentCompressPath = '';
+        }
+
+        async function performCompress() {
+            const format = document.getElementById('compress-format').value;
+            if (!currentCompressPath) {
+                alert('没有要压缩的文件或文件夹路径。');
+                return;
+            }
+
+            try {
+                const response = await fetch('/file_manager/files/compress', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ path: currentCompressPath, format: format })
+                });
+                const result = await response.json();
+                if (result.status === 'success') {
+                    alert(result.message);
+                    closeCompressModal();
+                    const currentPath = document.getElementById('current-path').textContent.replace('当前路径: /', '');
+                    fetchFiles(currentPath); // 刷新文件列表
+                } else {
+                    alert('压缩失败: ' + result.message);
+                }
+            } catch (error) {
+                console.error('Error compressing file/folder:', error);
+                alert('压缩时发生错误。');
+            }
+        }
+
+        async function openDecompressModal(filePath) {
+            currentDecompressPath = filePath;
+            document.getElementById('decompress-file-path').textContent = filePath;
+            document.getElementById('decompress-modal').style.display = 'block';
+        }
+
+        function closeDecompressModal() {
+            document.getElementById('decompress-modal').style.display = 'none';
+            currentDecompressPath = '';
+        }
+
+        async function performDecompress() {
+            if (!currentDecompressPath) {
+                alert('没有要解压的文件路径。');
+                return;
+            }
+
+            try {
+                const response = await fetch('/file_manager/files/decompress', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ path: currentDecompressPath }) // 默认解压到当前目录
+                });
+                const result = await response.json();
+                if (result.status === 'success') {
+                    alert(result.message);
+                    closeDecompressModal();
+                    const currentPath = document.getElementById('current-path').textContent.replace('当前路径: /', '');
+                    fetchFiles(currentPath); // 刷新文件列表
+                } else {
+                    alert('解压失败: ' + result.message);
+                }
+            } catch (error) {
+                console.error('Error decompressing file:', error);
+                alert('解压时发生错误。');
+            }
+        }
+
+        // 辅助函数：格式化文件大小
+        function formatBytes(bytes, decimals = 2) {
+            if (bytes === 0) return '0 Bytes';
+            const k = 1024;
+            const dm = decimals < 0 ? 0 : decimals;
+            const sizes = ['Bytes', 'KB', 'MB', 'GB', 'TB', 'PB', 'EB', 'ZB', 'YB'];
+            const i = Math.floor(Math.log(bytes) / Math.log(k));
+            return parseFloat((bytes / Math.pow(k, i)).toFixed(dm)) + ' ' + sizes[i];
+        }
+    </script>
+</body>
+</html>

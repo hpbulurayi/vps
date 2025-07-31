@@ -1,0 +1,121 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Web终端 - VPS-Lite-Dashboard</title>
+    <style>
+        body { font-family: sans-serif; margin: 2em; background-color: #1e1e1e; color: #d4d4d4; }
+        .container { max-width: 1000px; margin: auto; background: #252526; padding: 20px; border-radius: 8px; box-shadow: 0 0 10px rgba(0,0,0,0.5); }
+        h1 { color: #d4d4d4; }
+        .nav-buttons { margin-bottom: 1em; }
+        .nav-buttons button { padding: 10px 15px; border: none; border-radius: 5px; cursor: pointer; background-color: #007acc; color: white; margin-right: 10px; }
+        .nav-buttons button:hover { background-color: #005a9e; }
+        
+        #terminal {
+            background-color: #1e1e1e;
+            color: #d4d4d4;
+            font-family: 'Courier New', Courier, monospace;
+            padding: 15px;
+            border-radius: 5px;
+            height: 500px;
+            overflow-y: auto;
+            white-space: pre-wrap; /* 自动换行 */
+            word-wrap: break-word; /* 单词内换行 */
+            border: 1px solid #333;
+        }
+        .terminal-input-container {
+            display: flex;
+            margin-top: 10px;
+        }
+        #terminal-input {
+            flex-grow: 1;
+            background-color: #3c3c3c;
+            color: #d4d4d4;
+            border: 1px solid #333;
+            padding: 10px;
+            font-family: 'Courier New', Courier, monospace;
+            border-radius: 5px 0 0 5px;
+        }
+        #terminal-input:focus {
+            outline: none;
+            border-color: #007acc;
+        }
+        #send-button {
+            padding: 10px 15px;
+            border: 1px solid #333;
+            border-left: none;
+            background-color: #007acc;
+            color: white;
+            cursor: pointer;
+            border-radius: 0 5px 5px 0;
+        }
+        #send-button:hover {
+            background-color: #005a9e;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>VPS-Lite-Dashboard - Web终端</h1>
+        <p><a href="/logout">退出登录</a></p>
+        <div class="nav-buttons">
+            <button onclick="location.href='/dashboard'">仪表盘</button>
+            <button onclick="location.href='/file_manager'">文件管理</button>
+            <button onclick="location.href='/process_manager'">进程管理</button>
+            <button onclick="location.href='/terminal'">Web终端</button>
+        </div>
+
+        <div id="terminal"></div>
+        <div class="terminal-input-container">
+            <input type="text" id="terminal-input" placeholder="输入命令并按 Enter">
+            <button id="send-button">执行</button>
+        </div>
+    </div>
+
+    <!-- 引入 Socket.IO 客户端库 -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.7.2/socket.io.min.js"></script>
+    <script>
+        document.addEventListener('DOMContentLoaded', () => {
+            const terminal = document.getElementById('terminal');
+            const input = document.getElementById('terminal-input');
+            const sendButton = document.getElementById('send-button');
+
+            // 连接到 Socket.IO 服务器
+            const socket = io.connect(location.protocol + '//' + document.domain + ':' + location.port + '/terminal');
+
+            socket.on('connect', () => {
+                console.log('Connected to terminal namespace.');
+            });
+
+            socket.on('response', (msg) => {
+                const p = document.createElement('p');
+                p.style.margin = '0';
+                p.textContent = msg.data;
+                terminal.appendChild(p);
+                // 自动滚动到底部
+                terminal.scrollTop = terminal.scrollHeight;
+            });
+
+            function executeCommand() {
+                const command = input.value;
+                if (command.trim() === '') {
+                    return;
+                }
+                socket.emit('execute_command', { command: command });
+                input.value = '';
+            }
+
+            // 监听输入框的 Enter 键
+            input.addEventListener('keydown', (event) => {
+                if (event.key === 'Enter') {
+                    executeCommand();
+                }
+            });
+
+            // 监听发送按钮的点击事件
+            sendButton.addEventListener('click', executeCommand);
+        });
+    </script>
+</body>
+</html>

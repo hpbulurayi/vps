@@ -1,0 +1,377 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>定时任务管理 - VPS-Lite-Dashboard</title>
+    <style>
+        body { font-family: sans-serif; margin: 2em; background-color: #f4f4f4; color: #333; }
+        .container { max-width: 1000px; margin: auto; background: white; padding: 20px; border-radius: 8px; box-shadow: 0 0 10px rgba(0,0,0,0.1); }
+        h1, h2, h3 { color: #555; }
+        .nav-buttons { margin-bottom: 1em; }
+        .nav-buttons button { padding: 10px 15px; border: none; border-radius: 5px; cursor: pointer; background-color: #007bff; color: white; margin-right: 10px; }
+        .nav-buttons button:hover { background-color: #0056b3; }
+        .controls { margin-bottom: 1em; display: flex; gap: 10px; align-items: center; }
+        .controls button { padding: 8px 12px; border: none; border-radius: 4px; background-color: #28a745; color: white; cursor: pointer; }
+        .controls button:hover { background-color: #218838; }
+        table { width: 100%; border-collapse: collapse; margin-top: 1em; font-size: 0.9em; }
+        th, td { padding: 8px; border: 1px solid #ddd; text-align: left; vertical-align: top; }
+        th { background-color: #f2f2f2; }
+        .action-buttons button { margin-right: 5px; padding: 6px 10px; border-radius: 4px; border: 1px solid #ccc; background-color: #f0f0f0; cursor: pointer; }
+        .action-buttons button:hover { background-color: #e0e0e0; }
+        .action-buttons .delete-btn { background-color: #dc3545; color: white; border-color: #dc3545; }
+        .action-buttons .delete-btn:hover { background-color: #c82333; }
+        
+        /* 模态框通用样式 */
+        .modal {
+            display: none; /* 默认隐藏 */
+            position: fixed; /* 固定定位 */
+            z-index: 1; /* 位于顶部 */
+            left: 0;
+            top: 0;
+            width: 100%; /* 满宽 */
+            height: 100%; /* 满高 */
+            overflow: auto; /* 如果内容过多，允许滚动 */
+            background-color: rgba(0,0,0,0.4); /* 黑色半透明背景 */
+        }
+        .modal-content {
+            background-color: #fefefe;
+            margin: 5% auto; /* 距顶部15%，水平居中 */
+            padding: 20px;
+            border: 1px solid #888;
+            width: 80%; /* 宽度 */
+            max-width: 600px;
+            border-radius: 8px;
+            position: relative;
+        }
+        .close-button {
+            color: #aaa;
+            float: right;
+            font-size: 28px;
+            font-weight: bold;
+        }
+        .close-button:hover,
+        .close-button:focus {
+            color: black;
+            text-decoration: none;
+            cursor: pointer;
+        }
+        .form-group {
+            margin-bottom: 1em;
+        }
+        .form-group label {
+            display: block;
+            margin-bottom: 0.5em;
+        }
+        .form-group input, .form-group textarea {
+            width: calc(100% - 20px);
+            padding: 8px;
+            border: 1px solid #ccc;
+            border-radius: 4px;
+        }
+        .editor-buttons {
+            margin-top: 1em;
+            text-align: right;
+        }
+        .editor-buttons button {
+            padding: 8px 15px;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+        }
+        .editor-buttons .save-btn { background-color: #28a745; color: white; }
+        .editor-buttons .cancel-btn { background-color: #6c757d; color: white; }
+
+        /* 详情模态框样式 */
+        #detail-modal .modal-content, #logs-modal .modal-content {
+            max-width: 800px;
+        }
+        #detail-content, #logs-content {
+            white-space: pre-wrap; /* 保留空白符和换行符 */
+            font-family: monospace;
+            background-color: #eee;
+            padding: 10px;
+            border-radius: 4px;
+            max-height: 400px;
+            overflow-y: auto;
+        }
+        .clickable-unit {
+            cursor: pointer;
+            color: #007bff;
+            text-decoration: underline;
+        }
+        .clickable-unit:hover {
+            color: #0056b3;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>VPS-Lite-Dashboard - 定时任务管理 (Systemd)</h1>
+        <p><a href="/logout">退出登录</a></p>
+        <div class="nav-buttons">
+            <button onclick="location.href='/dashboard'">仪表盘</button>
+            <button onclick="location.href='/file_manager'">文件管理</button>
+            <button onclick="location.href='/process_manager'">进程管理</button>
+            <button onclick="location.href='/terminal'">Web终端</button>
+            <button onclick="location.href='/systemd_manager'">定时任务</button>
+        </div>
+
+        <div class="controls">
+            <button onclick="location.reload()">刷新列表</button>
+            <button onclick="openCreateTimerModal()">新建定时任务</button>
+        </div>
+
+        <table>
+            <thead>
+                <tr>
+                    <th>单元文件 (UNIT FILE)</th>
+                    <th>状态 (STATE)</th>
+                    <th>操作</th>
+                </tr>
+            </thead>
+            <tbody id="timer-list">
+                <tr><td colspan="3">加载中...</td></tr>
+            </tbody>
+        </table>
+    </div>
+
+    <!-- 新建/编辑定时器模态框 -->
+    <div id="create-timer-modal" class="modal">
+        <div class="modal-content">
+            <span class="close-button" onclick="closeCreateTimerModal()">&times;</span>
+            <h2>新建定时任务</h2>
+            <form id="create-timer-form">
+                <div class="form-group">
+                    <label for="timer-name">任务名称 (例如: my-backup, 只能包含字母、数字、-、_)</label>
+                    <input type="text" id="timer-name" required pattern="[a-zA-Z0-9_-]+">
+                </div>
+                <div class="form-group">
+                    <label for="timer-description">任务描述</label>
+                    <input type="text" id="timer-description" required>
+                </div>
+                <div class="form-group">
+                    <label for="timer-command">执行的命令</label>
+                    <textarea id="timer-command" rows="3" required></textarea>
+                </div>
+                <div class="form-group">
+                    <label for="timer-on-calendar">执行时间 (OnCalendar, 例如: daily, hourly, *-*-* 10:00:00)</label>
+                    <input type="text" id="timer-on-calendar" required value="daily">
+                    <p><small>常用示例: `minutely` (每分钟), `hourly` (每小时), `daily` (每天), `weekly` (每周), `monthly` (每月), `yearly` (每年)</small></p>
+                    <p><small>高级示例: `Mon..Fri *-*-* 18:00:00` (周一到周五18点)</small></p>
+                </div>
+                <div class="editor-buttons">
+                    <button type="submit" class="save-btn">创建</button>
+                    <button type="button" class="cancel-btn" onclick="closeCreateTimerModal()">取消</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- 定时器详情模态框 -->
+    <div id="detail-modal" class="modal">
+        <div class="modal-content">
+            <span class="close-button" onclick="closeDetailModal()">&times;</span>
+            <h2>定时器详情: <span id="detail-unit-name"></span></h2>
+            <pre id="detail-content"></pre>
+            <div class="editor-buttons">
+                <button type="button" class="cancel-btn" onclick="closeDetailModal()">关闭</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- 日志模态框 -->
+    <div id="logs-modal" class="modal">
+        <div class="modal-content">
+            <span class="close-button" onclick="closeLogsModal()">&times;</span>
+            <h2>日志: <span id="logs-unit-name"></span></h2>
+            <pre id="logs-content"></pre>
+            <div class="editor-buttons">
+                <button type="button" class="cancel-btn" onclick="closeLogsModal()">关闭</button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        async function fetchTimers() {
+            try {
+                const response = await fetch('/systemd_manager/timers');
+                const data = await response.json();
+                const timerListBody = document.getElementById('timer-list');
+                timerListBody.innerHTML = ''; // 清空现有列表
+
+                if (data.status === 'success') {
+                    if (data.timers.length === 0) {
+                        timerListBody.innerHTML = `<tr><td colspan="3">没有找到 systemd 定时器。</td></tr>`;
+                        return;
+                    }
+                    data.timers.forEach(timer => {
+                        const row = timerListBody.insertRow();
+                        const unitCell = row.insertCell();
+                        unitCell.textContent = timer.unit;
+                        unitCell.classList.add('clickable-unit');
+                        unitCell.onclick = () => showTimerDetail(timer.unit); // 添加点击事件
+
+                        row.insertCell().textContent = timer.state;
+                        
+                        const actionsCell = row.insertCell();
+                        actionsCell.className = 'action-buttons';
+                        
+                        let buttonsHtml = '';
+
+                        // 启动和停止按钮通常针对 .service 单元，但这里为了演示保留
+                        // 实际操作定时器时，通常只需要 enable/disable
+                        buttonsHtml += `<button onclick="handleTimerAction('${timer.unit}', 'start')">启动</button>`;
+                        buttonsHtml += `<button onclick="handleTimerAction('${timer.unit}', 'stop')">停止</button>`;
+
+                        if (timer.state === 'enabled') {
+                            buttonsHtml += `<button onclick="handleTimerAction('${timer.unit}', 'disable')">禁用</button>`;
+                        } else if (timer.state === 'disabled') {
+                            buttonsHtml += `<button onclick="handleTimerAction('${timer.unit}', 'enable')">启用</button>`;
+                        } else {
+                            // 对于 'static' 或其他状态，不提供启用/禁用按钮
+                            // buttonsHtml += `<span>${timer.state}</span>`; // 可以显示状态，但没有启用/禁用操作
+                        }
+                        
+                        buttonsHtml += `<button onclick="showTimerLogs('${timer.unit}')">查看日志</button>`; // 添加查看日志按钮
+                        buttonsHtml += `<button class="delete-btn" onclick="handleTimerAction('${timer.unit}', 'delete')">删除</button>`;
+                        actionsCell.innerHTML = buttonsHtml;
+                    });
+                } else {
+                    console.error('Error fetching timers:', data.message);
+                    timerListBody.innerHTML = `<tr><td colspan="3">获取定时器列表失败: ${data.message}</td></tr>`;
+                }
+            } catch (error) {
+                console.error('Error fetching timers:', error);
+                timerListBody.innerHTML = `<tr><td colspan="3">连接错误，无法获取定时器列表。</td></tr>`;
+            }
+        }
+
+        async function handleTimerAction(unit, action) {
+            let confirmationMessage = `确定要对定时器 '${unit}' 执行 '${action}' 操作吗？`;
+            if (action === 'delete') {
+                confirmationMessage = `确定要删除定时器 '${unit}' 及其关联的服务吗？此操作不可逆！`;
+            }
+            if (!confirm(confirmationMessage)) {
+                return;
+            }
+
+            const url = action === 'delete' ? '/systemd_manager/timers/delete' : '/systemd_manager/timers/action';
+            const body = action === 'delete' ? { unit } : { unit, action };
+            
+            try {
+                const response = await fetch(url, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(body)
+                });
+                const result = await response.json();
+                if (result.status === 'success') {
+                    alert(result.message);
+                    fetchTimers(); // 刷新列表
+                } else {
+                    alert(`操作失败: ${result.message}`);
+                }
+            } catch (error) {
+                console.error(`Error performing action ${action} on ${unit}:`, error);
+                alert(`执行操作时发生错误。`);
+            }
+        }
+
+        async function showTimerDetail(unit) {
+            document.getElementById('detail-unit-name').textContent = unit;
+            const detailContent = document.getElementById('detail-content');
+            detailContent.textContent = '加载中...'; // 显示加载状态
+
+            try {
+                const response = await fetch(`/systemd_manager/timers/detail?unit=${unit}`);
+                const data = await response.json();
+
+                if (data.status === 'success') {
+                    let formattedDetail = '';
+                    for (const key in data.detail) {
+                        formattedDetail += `${key}=${data.detail[key]}\n`;
+                    }
+                    detailContent.textContent = formattedDetail;
+                } else {
+                    detailContent.textContent = `获取详情失败: ${data.message}`;
+                }
+            } catch (error) {
+                console.error('Error fetching timer detail:', error);
+                detailContent.textContent = '连接错误，无法获取定时器详情。';
+            }
+            document.getElementById('detail-modal').style.display = 'block';
+        }
+
+        function closeDetailModal() {
+            document.getElementById('detail-modal').style.display = 'none';
+        }
+
+        async function showTimerLogs(unit) {
+            document.getElementById('logs-unit-name').textContent = unit;
+            const logsContent = document.getElementById('logs-content');
+            logsContent.textContent = '加载中...'; // 显示加载状态
+
+            try {
+                const response = await fetch(`/systemd_manager/timers/logs?unit=${unit}`);
+                const data = await response.json();
+
+                if (data.status === 'success') {
+                    logsContent.textContent = data.logs;
+                } else {
+                    logsContent.textContent = `获取日志失败: ${data.message}`;
+                }
+            } catch (error) {
+                console.error('Error fetching timer logs:', error);
+                logsContent.textContent = '连接错误，无法获取定时器日志。';
+            }
+            document.getElementById('logs-modal').style.display = 'block';
+        }
+
+        function closeLogsModal() {
+            document.getElementById('logs-modal').style.display = 'none';
+        }
+
+        function openCreateTimerModal() {
+            document.getElementById('create-timer-form').reset();
+            document.getElementById('create-timer-modal').style.display = 'block';
+        }
+
+        function closeCreateTimerModal() {
+            document.getElementById('create-timer-modal').style.display = 'none';
+        }
+
+        document.getElementById('create-timer-form').addEventListener('submit', async (event) => {
+            event.preventDefault();
+            const timerData = {
+                name: document.getElementById('timer-name').value,
+                description: document.getElementById('timer-description').value,
+                command: document.getElementById('timer-command').value,
+                on_calendar: document.getElementById('timer-on-calendar').value
+            };
+
+            try {
+                const response = await fetch('/systemd_manager/timers/create', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(timerData)
+                });
+                const result = await response.json();
+                if (result.status === 'success') {
+                    alert(result.message);
+                    closeCreateTimerModal();
+                    fetchTimers();
+                } else {
+                    alert(`创建失败: ${result.message}`);
+                }
+            } catch (error) {
+                console.error('Error creating timer:', error);
+                alert('创建定时任务时发生错误。');
+            }
+        });
+
+        // 初始加载
+        document.addEventListener('DOMContentLoaded', fetchTimers);
+    </script>
+</body>
+</html>

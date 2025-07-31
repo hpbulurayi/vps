@@ -1,0 +1,192 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>进程管理 - VPS-Lite-Dashboard</title>
+    <style>
+        body { font-family: sans-serif; margin: 2em; background-color: #f4f4f4; color: #333; }
+        .container { max-width: 1000px; margin: auto; background: white; padding: 20px; border-radius: 8px; box-shadow: 0 0 10px rgba(0,0,0,0.1); }
+        h1, h2, h3 { color: #555; }
+        .nav-buttons { margin-bottom: 1em; }
+        .nav-buttons button { padding: 10px 15px; border: none; border-radius: 5px; cursor: pointer; background-color: #007bff; color: white; margin-right: 10px; }
+        .nav-buttons button:hover { background-color: #0056b3; }
+        .controls { margin-bottom: 1em; display: flex; gap: 10px; align-items: center; }
+        .controls input { padding: 8px; border: 1px solid #ddd; border-radius: 4px; flex-grow: 1; }
+        .controls button { padding: 8px 12px; border: none; border-radius: 4px; background-color: #007bff; color: white; cursor: pointer; }
+        .controls button:hover { background-color: #0056b3; }
+        table { width: 100%; border-collapse: collapse; margin-top: 1em; }
+        th, td { padding: 8px; border: 1px solid #ddd; text-align: left; vertical-align: top; }
+        th { background-color: #f2f2f2; cursor: pointer; }
+        th.sorted-asc::after { content: ' ▲'; }
+        th.sorted-desc::after { content: ' ▼'; }
+        .action-buttons button { margin-right: 5px; padding: 6px 10px; border-radius: 4px; border: 1px solid #ccc; background-color: #f0f0f0; cursor: pointer; }
+        .action-buttons button:hover { background-color: #e0e0e0; }
+        .action-buttons .kill-btn { background-color: #dc3545; color: white; border-color: #dc3545; }
+        .action-buttons .kill-btn:hover { background-color: #c82333; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>VPS-Lite-Dashboard - 进程管理</h1>
+        <p><a href="/logout">退出登录</a></p>
+        <div class="nav-buttons">
+            <button onclick="location.href='/dashboard'">仪表盘</button>
+            <button onclick="location.href='/file_manager'">文件管理</button>
+            <button onclick="location.href='/process_manager'">进程管理</button>
+            <button onclick="location.href='/terminal'">Web终端</button>
+            <button onclick="location.href='/systemd_manager'">定时任务</button>
+        </div>
+
+        <div class="controls">
+            <input type="text" id="process-search" placeholder="搜索进程名称或PID">
+            <button onclick="fetchProcesses()">刷新</button>
+        </div>
+
+        <table>
+            <thead>
+                <tr>
+                    <th data-sort="pid">PID</th>
+                    <th data-sort="name">名称</th>
+                    <th data-sort="username">用户</th>
+                    <th data-sort="cpu_percent">CPU (%)</th>
+                    <th data-sort="memory_percent">内存 (%)</th>
+                    <th data-sort="status">状态</th>
+                    <th data-sort="cmdline">命令行</th>
+                    <th>操作</th>
+                </tr>
+            </thead>
+            <tbody id="process-list">
+                <tr><td colspan="8">加载中...</td></tr>
+            </tbody>
+        </table>
+    </div>
+
+    <script>
+        let currentProcesses = [];
+        let sortColumn = 'pid';
+        let sortDirection = 'asc'; // 'asc' or 'desc'
+
+        async function fetchProcesses() {
+            try {
+                const response = await fetch('/process_manager/processes');
+                const data = await response.json();
+
+                if (data.status === 'success') {
+                    currentProcesses = data.processes;
+                    renderProcesses();
+                } else {
+                    console.error('Error fetching processes:', data.message);
+                    document.getElementById('process-list').innerHTML = `<tr><td colspan="8">获取进程列表失败: ${data.message}</td></tr>`;
+                }
+            } catch (error) {
+                console.error('Error fetching processes:', error);
+                document.getElementById('process-list').innerHTML = `<tr><td colspan="8">连接错误，无法获取进程列表。</td></tr>`;
+            }
+        }
+
+        function renderProcesses() {
+            const processListBody = document.getElementById('process-list');
+            processListBody.innerHTML = '';
+            
+            const searchTerm = document.getElementById('process-search').value.toLowerCase();
+            let filteredProcesses = currentProcesses.filter(proc => 
+                proc.name.toLowerCase().includes(searchTerm) || 
+                proc.pid.toString().includes(searchTerm) ||
+                proc.cmdline.toLowerCase().includes(searchTerm)
+            );
+
+            // 排序
+            filteredProcesses.sort((a, b) => {
+                let valA = a[sortColumn];
+                let valB = b[sortColumn];
+
+                if (typeof valA === 'string') {
+                    valA = valA.toLowerCase();
+                    valB = valB.toLowerCase();
+                }
+
+                if (valA < valB) return sortDirection === 'asc' ? -1 : 1;
+                if (valA > valB) return sortDirection === 'asc' ? 1 : -1;
+                return 0;
+            });
+
+            if (filteredProcesses.length === 0) {
+                processListBody.innerHTML = `<tr><td colspan="8">没有找到匹配的进程。</td></tr>`;
+                return;
+            }
+
+            filteredProcesses.forEach(proc => {
+                const row = processListBody.insertRow();
+                row.insertCell().textContent = proc.pid;
+                row.insertCell().textContent = proc.name;
+                row.insertCell().textContent = proc.username;
+                row.insertCell().textContent = proc.cpu_percent.toFixed(1);
+                row.insertCell().textContent = proc.memory_percent.toFixed(1);
+                row.insertCell().textContent = proc.status;
+                row.insertCell().textContent = proc.cmdline;
+
+                const actionsCell = row.insertCell();
+                actionsCell.className = 'action-buttons';
+                const killButton = document.createElement('button');
+                killButton.textContent = '结束';
+                killButton.className = 'kill-btn';
+                killButton.onclick = () => killProcess(proc.pid, proc.name);
+                actionsCell.appendChild(killButton);
+            });
+        }
+
+        async function killProcess(pid, name) {
+            if (!confirm(`确定要结束进程 ${name} (PID: ${pid}) 吗？`)) {
+                return;
+            }
+            try {
+                const response = await fetch('/process_manager/processes/kill', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ pid: pid })
+                });
+                const result = await response.json();
+                if (result.status === 'success') {
+                    alert(result.message);
+                    fetchProcesses(); // 刷新列表
+                } else {
+                    alert('结束进程失败: ' + result.message);
+                }
+            } catch (error) {
+                console.error('Error killing process:', error);
+                alert('结束进程时发生错误。');
+            }
+        }
+
+        // 搜索框事件监听
+        document.getElementById('process-search').addEventListener('input', renderProcesses);
+
+        // 表头排序事件监听
+        document.querySelectorAll('th[data-sort]').forEach(header => {
+            header.addEventListener('click', () => {
+                const column = header.dataset.sort;
+                if (sortColumn === column) {
+                    sortDirection = sortDirection === 'asc' ? 'desc' : 'asc';
+                } else {
+                    sortColumn = column;
+                    sortDirection = 'asc';
+                }
+                // 移除其他表头的排序指示
+                document.querySelectorAll('th[data-sort]').forEach(th => {
+                    th.classList.remove('sorted-asc', 'sorted-desc');
+                });
+                // 添加当前表头的排序指示
+                header.classList.add(`sorted-${sortDirection}`);
+                renderProcesses();
+            });
+        });
+
+        // 初始加载和定时刷新
+        document.addEventListener('DOMContentLoaded', () => {
+            fetchProcesses();
+            setInterval(fetchProcesses, 5000); // 每5秒更新一次进程列表
+        });
+    </script>
+</body>
+</html>

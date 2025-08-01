@@ -108,13 +108,13 @@
 <body>
     <div class="container">
         <h1>VPS-Lite-Dashboard - 定时任务管理 (Systemd)</h1>
-        <p><a href="/logout">退出登录</a></p>
+        <p><a href="{{ base_path }}/logout">退出登录</a></p>
         <div class="nav-buttons">
-            <button onclick="location.href='/dashboard'">仪表盘</button>
-            <button onclick="location.href='/file_manager'">文件管理</button>
-            <button onclick="location.href='/process_manager'">进程管理</button>
-            <button onclick="location.href='/terminal'">Web终端</button>
-            <button onclick="location.href='/systemd_manager'">定时任务</button>
+            <button onclick="location.href='{{ base_path }}/dashboard'">仪表盘</button>
+            <button onclick="location.href='{{ base_path }}/file_manager'">文件管理</button>
+            <button onclick="location.href='{{ base_path }}/process_manager'">进程管理</button>
+            <button onclick="location.href='{{ base_path }}/terminal'">Web终端</button>
+            <button onclick="location.href='{{ base_path }}/systemd_manager'">定时任务</button>
         </div>
 
         <div class="controls">
@@ -193,9 +193,11 @@
     </div>
 
     <script>
+        const basePath = '{{ base_path }}';
+
         async function fetchTimers() {
             try {
-                const response = await fetch('/systemd_manager/timers');
+                const response = await fetch(`${basePath}/systemd_manager/timers`);
                 const data = await response.json();
                 const timerListBody = document.getElementById('timer-list');
                 timerListBody.innerHTML = ''; // 清空现有列表
@@ -256,7 +258,7 @@
                 return;
             }
 
-            const url = action === 'delete' ? '/systemd_manager/timers/delete' : '/systemd_manager/timers/action';
+            const url = action === 'delete' ? `${basePath}/systemd_manager/timers/delete` : `${basePath}/systemd_manager/timers/action`;
             const body = action === 'delete' ? { unit } : { unit, action };
             
             try {
@@ -284,7 +286,7 @@
             detailContent.textContent = '加载中...'; // 显示加载状态
 
             try {
-                const response = await fetch(`/systemd_manager/timers/detail?unit=${unit}`);
+                const response = await fetch(`${basePath}/systemd_manager/timers/detail?unit=${unit}`);
                 const data = await response.json();
 
                 if (data.status === 'success') {
@@ -313,7 +315,7 @@
             logsContent.textContent = '加载中...'; // 显示加载状态
 
             try {
-                const response = await fetch(`/systemd_manager/timers/logs?unit=${unit}`);
+                const response = await fetch(`${basePath}/systemd_manager/timers/logs?unit=${unit}`);
                 const data = await response.json();
 
                 if (data.status === 'success') {
@@ -351,7 +353,7 @@
             };
 
             try {
-                const response = await fetch('/systemd_manager/timers/create', {
+                const response = await fetch(`${basePath}/systemd_manager/timers/create`, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify(timerData)

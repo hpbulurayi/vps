@@ -58,12 +58,13 @@
 <body>
     <div class="container">
         <h1>VPS-Lite-Dashboard - Web终端</h1>
-        <p><a href="/logout">退出登录</a></p>
+        <p><a href="{{ base_path }}/logout">退出登录</a></p>
         <div class="nav-buttons">
-            <button onclick="location.href='/dashboard'">仪表盘</button>
-            <button onclick="location.href='/file_manager'">文件管理</button>
-            <button onclick="location.href='/process_manager'">进程管理</button>
-            <button onclick="location.href='/terminal'">Web终端</button>
+            <button onclick="location.href='{{ base_path }}/dashboard'">仪表盘</button>
+            <button onclick="location.href='{{ base_path }}/file_manager'">文件管理</button>
+            <button onclick="location.href='{{ base_path }}/process_manager'">进程管理</button>
+            <button onclick="location.href='{{ base_path }}/terminal'">Web终端</button>
+            <button onclick="location.href='{{ base_path }}/systemd_manager'">定时任务</button>
         </div>
 
         <div id="terminal"></div>
@@ -77,12 +78,15 @@
     <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.7.2/socket.io.min.js"></script>
     <script>
         document.addEventListener('DOMContentLoaded', () => {
+            const basePath = '{{ base_path }}';
             const terminal = document.getElementById('terminal');
             const input = document.getElementById('terminal-input');
             const sendButton = document.getElementById('send-button');
 
             // 连接到 Socket.IO 服务器
-            const socket = io.connect(location.protocol + '//' + document.domain + ':' + location.port + '/terminal');
+            const socket = io.connect(location.protocol + '//' + document.domain + ':' + location.port + '/terminal', {
+                path: `${basePath}/socket.io`
+            });
 
             socket.on('connect', () => {
                 console.log('Connected to terminal namespace.');

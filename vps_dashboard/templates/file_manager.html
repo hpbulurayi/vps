@@ -131,13 +131,13 @@
 <body>
     <div class="container">
         <h1>文件管理器</h1>
-        <p><a href="/logout">退出登录</a></p>
+        <p><a href="{{ base_path }}/logout">退出登录</a></p>
         <div class="nav-buttons">
-            <button onclick="location.href='/dashboard'">仪表盘</button>
-            <button onclick="location.href='/file_manager'">文件管理</button>
-            <button onclick="location.href='/process_manager'">进程管理</button>
-            <button onclick="location.href='/terminal'">Web终端</button>
-            <button onclick="location.href='/systemd_manager'">定时任务</button>
+            <button onclick="location.href='{{ base_path }}/dashboard'">仪表盘</button>
+            <button onclick="location.href='{{ base_path }}/file_manager'">文件管理</button>
+            <button onclick="location.href='{{ base_path }}/process_manager'">进程管理</button>
+            <button onclick="location.href='{{ base_path }}/terminal'">Web终端</button>
+            <button onclick="location.href='{{ base_path }}/systemd_manager'">定时任务</button>
         </div>
         <h3 class="current-path" id="current-path">/</h3>
 
@@ -246,6 +246,7 @@
     </div>
 
     <script>
+        const basePath = '{{ base_path }}';
         let currentEditingFilePath = ''; // 用于保存当前编辑的文件路径
         let currentPermissionsPath = ''; // 用于保存当前设置权限的文件路径
         let currentCompressPath = ''; // 用于保存当前压缩的文件/文件夹路径
@@ -257,7 +258,7 @@
 
         async function fetchFiles(path) {
             try {
-                const response = await fetch(`/file_manager/files?path=${encodeURIComponent(path)}`);
+                const response = await fetch(`${basePath}/file_manager/files?path=${encodeURIComponent(path)}`);
                 const files = await response.json();
                 const fileList = document.getElementById('file-list');
                 const currentPathEl = document.getElementById('current-path');
@@ -298,7 +299,7 @@
                         const downloadButton = document.createElement('button');
                         downloadButton.textContent = '下载';
                         downloadButton.onclick = () => {
-                            window.location.href = `/file_manager/files/download?path=${encodeURIComponent(file.path)}`;
+                            window.location.href = `${basePath}/file_manager/files/download?path=${encodeURIComponent(file.path)}`;
                         };
                         actionsCell.appendChild(downloadButton);
 
@@ -360,7 +361,7 @@
             }
 
             try {
-                const response = await fetch('/file_manager/files/create_folder', {
+                const response = await fetch(`${basePath}/file_manager/files/create_folder`, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ path: path })
@@ -389,7 +390,7 @@
             const newPath = (currentPath ? currentPath + '/' : '') + newName.trim();
 
             try {
-                const response = await fetch('/file_manager/files/rename', {
+                const response = await fetch(`${basePath}/file_manager/files/rename`, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ old_path: oldPath, new_path: newPath })
@@ -412,7 +413,7 @@
                 return;
             }
             try {
-                const response = await fetch('/file_manager/files/delete', {
+                const response = await fetch(`${basePath}/file_manager/files/delete`, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ path: path })
@@ -446,7 +447,7 @@
             formData.append('path', currentPath);
 
             try {
-                const response = await fetch('/file_manager/files/upload', {
+                const response = await fetch(`${basePath}/file_manager/files/upload`, {
                     method: 'POST',
                     body: formData
                 });
@@ -474,7 +475,7 @@
             
             // 尝试创建一个空文件
             try {
-                const response = await fetch('/file_manager/files/save_content', {
+                const response = await fetch(`${basePath}/file_manager/files/save_content`, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ path: filePath, content: '' }) // 创建一个空文件
@@ -496,7 +497,7 @@
 
         async function openFileInEditor(filePath) {
             try {
-                const response = await fetch(`/file_manager/files/get_content?path=${encodeURIComponent(filePath)}`);
+                const response = await fetch(`${basePath}/file_manager/files/get_content?path=${encodeURIComponent(filePath)}`);
                 const data = await response.json();
 
                 if (data.status === 'success') {
@@ -521,7 +522,7 @@
             }
 
             try {
-                const response = await fetch('/file_manager/files/save_content', {
+                const response = await fetch(`${basePath}/file_manager/files/save_content`, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ path: currentEditingFilePath, content: content })
@@ -555,7 +556,7 @@
             resetPermissionCheckboxes(); // 清空复选框
 
             try {
-                const response = await fetch(`/file_manager/files/permissions?path=${encodeURIComponent(filePath)}`);
+                const response = await fetch(`${basePath}/file_manager/files/permissions?path=${encodeURIComponent(filePath)}`);
                 const data = await response.json();
                 if (data.status === 'success') {
                     const octal = data.permissions.slice(-3); // 获取后三位八进制权限
@@ -584,7 +585,7 @@
             }
 
             try {
-                const response = await fetch('/file_manager/files/permissions', {
+                const response = await fetch(`${basePath}/file_manager/files/permissions`, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ path: currentPermissionsPath, permissions: octalInput })
@@ -687,7 +688,7 @@
             }
 
             try {
-                const response = await fetch('/file_manager/files/compress', {
+                const response = await fetch(`${basePath}/file_manager/files/compress`, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ path: currentCompressPath, format: format })
@@ -725,7 +726,7 @@
             }
 
             try {
-                const response = await fetch('/file_manager/files/decompress', {
+                const response = await fetch(`${basePath}/file_manager/files/decompress`, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ path: currentDecompressPath }) // 默认解压到当前目录

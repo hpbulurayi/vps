@@ -1,3 +1,5 @@
 requirements.txt.bak
 
 credentials.json
+
+__pycache__

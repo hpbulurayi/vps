@@ -1,6 +1,10 @@
 import os
 import getpass
 
+# 基础路径配置，可以被环境变量覆盖。默认为空字符串，表示根路径。
+# 例如，设置为 '/vpsmana'，则应用将通过 http://host/vpsmana 访问。
+BASE_PATH = os.getenv('BASE_PATH', '')
+
 SECRET_KEY = 'your_super_secret_key_here'
 
 # 认证凭据将从 credentials.json 文件加载

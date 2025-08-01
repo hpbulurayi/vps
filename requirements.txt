@@ -3,3 +3,4 @@ Flask-SocketIO
 psutil
 eventlet
 Werkzeug
+python-dotenv

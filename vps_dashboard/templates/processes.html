@@ -29,13 +29,13 @@
 <body>
     <div class="container">
         <h1>VPS-Lite-Dashboard - 进程管理</h1>
-        <p><a href="/logout">退出登录</a></p>
+        <p><a href="{{ base_path }}/logout">退出登录</a></p>
         <div class="nav-buttons">
-            <button onclick="location.href='/dashboard'">仪表盘</button>
-            <button onclick="location.href='/file_manager'">文件管理</button>
-            <button onclick="location.href='/process_manager'">进程管理</button>
-            <button onclick="location.href='/terminal'">Web终端</button>
-            <button onclick="location.href='/systemd_manager'">定时任务</button>
+            <button onclick="location.href='{{ base_path }}/dashboard'">仪表盘</button>
+            <button onclick="location.href='{{ base_path }}/file_manager'">文件管理</button>
+            <button onclick="location.href='{{ base_path }}/process_manager'">进程管理</button>
+            <button onclick="location.href='{{ base_path }}/terminal'">Web终端</button>
+            <button onclick="location.href='{{ base_path }}/systemd_manager'">定时任务</button>
         </div>
 
         <div class="controls">
@@ -63,13 +63,14 @@
     </div>
 
     <script>
+        const basePath = '{{ base_path }}';
         let currentProcesses = [];
         let sortColumn = 'pid';
         let sortDirection = 'asc'; // 'asc' or 'desc'
 
         async function fetchProcesses() {
             try {
-                const response = await fetch('/process_manager/processes');
+                const response = await fetch(`${basePath}/process_manager/processes`);
                 const data = await response.json();
 
                 if (data.status === 'success') {
@@ -141,7 +142,7 @@
                 return;
             }
             try {
-                const response = await fetch('/process_manager/processes/kill', {
+                const response = await fetch(`${basePath}/process_manager/processes/kill`, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ pid: pid })

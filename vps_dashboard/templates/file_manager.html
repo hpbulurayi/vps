@@ -29,6 +29,25 @@
         .action-buttons .delete-btn:hover { background-color: #c82333; }
         .current-path { font-size: 1.2em; margin-bottom: 1em; }
 
+        .pagination {
+            margin-top: 1em;
+            text-align: center;
+        }
+        .pagination button {
+            padding: 8px 12px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            background-color: #f0f0f0;
+            cursor: pointer;
+        }
+        .pagination button:disabled {
+            cursor: not-allowed;
+            background-color: #eee;
+        }
+        .pagination span {
+            margin: 0 1em;
+        }
+
         /* 模态框通用样式 */
         .modal {
             display: none; /* 默认隐藏 */
@@ -164,6 +183,11 @@
                 <!-- 文件列表将由JavaScript填充 -->
             </tbody>
         </table>
+        <div class="pagination">
+            <button id="prev-page-btn" disabled>上一页</button>
+            <span id="page-info"></span>
+            <button id="next-page-btn" disabled>下一页</button>
+        </div>
     </div>
 
     <!-- 文件编辑器模态框 -->
@@ -251,25 +275,46 @@
         let currentPermissionsPath = ''; // 用于保存当前设置权限的文件路径
         let currentCompressPath = ''; // 用于保存当前压缩的文件/文件夹路径
         let currentDecompressPath = ''; // 用于保存当前解压的文件路径
+        let currentPage = 1;
+        let totalPages = 1;
+        let currentPath = '';
 
         document.addEventListener('DOMContentLoaded', () => {
-            fetchFiles(''); // 页面加载时获取根目录文件
+            fetchFiles('');
+            document.getElementById('prev-page-btn').addEventListener('click', () => {
+                if (currentPage > 1) {
+                    fetchFiles(currentPath, currentPage - 1);
+                }
+            });
+            document.getElementById('next-page-btn').addEventListener('click', () => {
+                if (currentPage < totalPages) {
+                    fetchFiles(currentPath, currentPage + 1);
+                }
+            });
         });
 
-        async function fetchFiles(path) {
+        async function fetchFiles(path, page = 1) {
+            currentPath = path;
+            currentPage = page;
             try {
-                const response = await fetch(`${basePath}/file_manager/files?path=${encodeURIComponent(path)}`);
-                const files = await response.json();
+                const response = await fetch(`${basePath}/file_manager/files?path=${encodeURIComponent(path)}&page=${page}`);
+                const data = await response.json();
                 const fileList = document.getElementById('file-list');
                 const currentPathEl = document.getElementById('current-path');
                 
-                currentPathEl.textContent = `当前路径: /${path}`;
+                currentPathEl.textContent = `当前路径: ${data.current_full_path}`;
                 fileList.innerHTML = ''; // 清空现有列表
 
-                if (files.status === 'error') {
-                    alert('错误: ' + files.message);
+                if (data.status === 'error') {
+                    alert('错误: ' + data.message);
                     return;
                 }
+
+                const files = data.items;
+                totalPages = data.total_pages;
+                currentPage = data.current_page;
+
+                updatePaginationControls();
 
                 files.forEach(file => {
                     const row = fileList.insertRow();
@@ -282,7 +327,7 @@
                     if (file.type === 'directory') {
                         link.onclick = (e) => {
                             e.preventDefault();
-                            fetchFiles(file.path);
+                            fetchFiles(file.path, 1); // 切换目录时回到第一页
                         };
                     }
                     nameCell.appendChild(link);
@@ -347,6 +392,16 @@
                 console.error('Error fetching files:', error);
                 alert('获取文件列表时发生错误。');
             }
+        }
+        
+        function updatePaginationControls() {
+            const pageInfo = document.getElementById('page-info');
+            const prevBtn = document.getElementById('prev-page-btn');
+            const nextBtn = document.getElementById('next-page-btn');
+
+            pageInfo.textContent = `第 ${currentPage} 页 / 共 ${totalPages} 页`;
+            prevBtn.disabled = currentPage <= 1;
+            nextBtn.disabled = currentPage >= totalPages;
         }
         
         async function createFolder() {
@@ -504,6 +559,11 @@
                     document.getElementById('editing-file-path').textContent = filePath;
                     document.getElementById('editor-textarea').value = data.content;
                     currentEditingFilePath = filePath; // 保存当前编辑的文件路径
+                    
+                    if (data.truncated) {
+                        alert("文件过大，仅显示部分内容以供预览。保存操作将覆盖整个文件。");
+                    }
+
                     document.getElementById('file-editor-modal').style.display = 'block'; // 显示模态框
                 } else {
                     alert('读取文件失败: ' + data.message);

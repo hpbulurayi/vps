@@ -18,13 +18,17 @@ def _get_safe_path(req_path, base_dir=None, check_exists=False, is_dir=False, ch
     确保所有操作都在指定的 base_dir 范围内。
     """
     if base_dir is None:
-        base_dir = current_app.config['FILE_MANAGER_ROOT']
+        import getpass
+        if getpass.getuser() == 'root':
+            base_dir = '/'
+        else:
+            base_dir = current_app.config['FILE_MANAGER_ROOT']
         
     full_path = os.path.abspath(os.path.join(base_dir, req_path))
 
     # 安全检查：确保请求的路径在 base_dir 目录下
     if not full_path.startswith(base_dir):
-        return None, (jsonify({"status": "error", "message": "Access denied."}), 403) # 修正：从 40 改为 403
+        return None, (jsonify({"status": "error", "message": "Access denied."}), 403)
 
     if check_exists and not os.path.exists(full_path):
         return None, (jsonify({"status": "error", "message": "Path does not exist."}), 404)

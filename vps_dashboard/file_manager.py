@@ -20,32 +20,55 @@ def list_files():
     """列出指定目录下的文件和文件夹，并包含详细信息。"""
     try:
         req_path = request.args.get('path', '')
+        page = request.args.get('page', 1, type=int)
+        page_size = request.args.get('page_size', 100, type=int)
+
         full_path, error_response = _get_safe_path(req_path, check_exists=True, is_dir=True)
         if error_response:
             return error_response
 
         items = []
-        for item in os.listdir(full_path):
-            item_path = os.path.join(full_path, item)
-            stat_info = os.stat(item_path) # 获取文件状态信息
-            is_dir = os.path.isdir(item_path)
-            
-            # 计算相对路径，并规范化斜杠
-            relative_item_path = os.path.relpath(item_path, current_app.config['FILE_MANAGER_ROOT']).replace("\\", "/")
+        with os.scandir(full_path) as it:
+            for entry in it:
+                try:
+                    stat_info = entry.stat()
+                    is_dir = entry.is_dir()
+                    
+                    # 动态确定基础目录
+                    import getpass
+                    if getpass.getuser() == 'root':
+                        base_dir = '/'
+                    else:
+                        base_dir = current_app.config['FILE_MANAGER_ROOT']
 
-            items.append({
-                "name": item,
-                "type": "directory" if is_dir else "file",
-                "path": relative_item_path,
-                "size": stat_info.st_size,
-                "last_modified": datetime.datetime.fromtimestamp(stat_info.st_mtime).isoformat(),
-                "permissions": oct(stat_info.st_mode & 0o777) # 获取并转换为八进制权限
-            })
+                    # 计算相对路径，并规范化斜杠
+                    relative_item_path = os.path.relpath(entry.path, base_dir).replace("\\", "/")
+
+                    items.append({
+                        "name": entry.name,
+                        "type": "directory" if is_dir else "file",
+                        "path": relative_item_path,
+                        "size": stat_info.st_size,
+                        "last_modified": datetime.datetime.fromtimestamp(stat_info.st_mtime).isoformat(),
+                        "permissions": oct(stat_info.st_mode & 0o777)
+                    })
+                except OSError:
+                    # 忽略无法访问的文件或链接
+                    continue
         
+        # 分页处理
+        total_items = len(items)
+        total_pages = (total_items + page_size - 1) // page_size
+        start = (page - 1) * page_size
+        end = start + page_size
+        paginated_items = items[start:end]
+
         # 添加上一级目录
-        if full_path != current_app.config['FILE_MANAGER_ROOT']:
+        import getpass
+        base_dir = '/' if getpass.getuser() == 'root' else current_app.config['FILE_MANAGER_ROOT']
+        if full_path != base_dir:
             parent_path = os.path.dirname(req_path)
-            items.insert(0, {
+            paginated_items.insert(0, {
                 "name": "..",
                 "type": "directory",
                 "path": parent_path.replace("\\", "/"),
@@ -54,7 +77,12 @@ def list_files():
                 "permissions": None
             })
 
-        return jsonify(items)
+        return jsonify({
+            "items": paginated_items,
+            "total_pages": total_pages,
+            "current_page": page,
+            "current_full_path": req_path # 添加当前请求的路径，前端用于显示
+        })
     except Exception as e:
         return jsonify({"status": "error", "message": str(e)}), 500
 
@@ -177,19 +205,29 @@ def get_file_content():
         if error_response:
             return error_response
         
+        file_size = os.path.getsize(full_path)
+        # 限制最大预览大小为 1MB
+        max_preview_size = 1 * 1024 * 1024
+
+        truncated = file_size > max_preview_size
+        read_size = max_preview_size if truncated else file_size
+
         # 尝试以UTF-8读取，如果失败则尝试其他编码
         try:
             with open(full_path, 'r', encoding='utf-8') as f:
-                content = f.read()
+                content = f.read(read_size)
         except UnicodeDecodeError:
             # 尝试其他常见编码
             try:
                 with open(full_path, 'r', encoding='latin-1') as f:
-                    content = f.read()
+                    content = f.read(read_size)
             except Exception:
                 return jsonify({"status": "error", "message": "无法解码文件内容，请尝试其他方式。"}), 500
+        
+        if truncated:
+            content += f"\n\n... (文件过大，仅显示前 {max_preview_size // 1024}KB 内容) ..."
 
-        return jsonify({"status": "success", "content": content})
+        return jsonify({"status": "success", "content": content, "truncated": truncated})
     except Exception as e:
         return jsonify({"status": "error", "message": str(e)}), 500
 

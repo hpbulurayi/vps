@@ -407,8 +407,7 @@
         async function createFolder() {
             const folderNameInput = document.getElementById('new-folder-name');
             const folderName = folderNameInput.value.trim();
-            const currentPath = document.getElementById('current-path').textContent.replace('当前路径: /', '');
-            const path = (currentPath ? currentPath + '/' : '') + folderName;
+            const path = currentPath ? `${currentPath}/${folderName}` : folderName;
 
             if (!folderName) {
                 alert('请输入文件夹名称。');
@@ -441,8 +440,7 @@
                 return; // 用户取消或未做更改
             }
             
-            const currentPath = document.getElementById('current-path').textContent.replace('当前路径: /', '');
-            const newPath = (currentPath ? currentPath + '/' : '') + newName.trim();
+            const newPath = currentPath ? `${currentPath}/${newName.trim()}` : newName.trim();
 
             try {
                 const response = await fetch(`${basePath}/file_manager/files/rename`, {
@@ -490,7 +488,6 @@
         async function uploadFile() {
             const fileInput = document.getElementById('fileUploadInput');
             const file = fileInput.files[0];
-            const currentPath = document.getElementById('current-path').textContent.replace('当前路径: /', '');
 
             if (!file) {
                 alert('请选择一个文件。');
@@ -525,8 +522,7 @@
                 return;
             }
 
-            const currentPath = document.getElementById('current-path').textContent.replace('当前路径: /', '');
-            const filePath = (currentPath ? currentPath + '/' : '') + fileName.trim();
+            const filePath = currentPath ? `${currentPath}/${fileName.trim()}` : fileName.trim();
             
             // 尝试创建一个空文件
             try {

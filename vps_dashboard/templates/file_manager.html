@@ -474,7 +474,6 @@
                 const result = await response.json();
                 if (result.status === 'success') {
                     alert(result.message);
-                    const currentPath = document.getElementById('current-path').textContent.replace('当前路径: /', '');
                     fetchFiles(currentPath);
                 } else {
                     alert('删除失败: ' + result.message);
@@ -587,7 +586,6 @@
                 if (result.status === 'success') {
                     alert(result.message);
                     closeEditorModal(); // 保存成功后关闭编辑器
-                    const currentPath = document.getElementById('current-path').textContent.replace('当前路径: /', '');
                     fetchFiles(currentPath); // 刷新文件列表以更新文件大小/修改时间
                 } else {
                     alert('保存文件失败: ' + result.message);
@@ -650,7 +648,6 @@
                 if (result.status === 'success') {
                     alert(result.message);
                     closePermissionsModal();
-                    const currentPath = document.getElementById('current-path').textContent.replace('当前路径: /', '');
                     fetchFiles(currentPath); // 刷新文件列表以更新权限显示
                 } else {
                     alert('保存权限失败: ' + result.message);
@@ -753,7 +750,6 @@
                 if (result.status === 'success') {
                     alert(result.message);
                     closeCompressModal();
-                    const currentPath = document.getElementById('current-path').textContent.replace('当前路径: /', '');
                     fetchFiles(currentPath); // 刷新文件列表
                 } else {
                     alert('压缩失败: ' + result.message);
@@ -791,7 +787,6 @@
                 if (result.status === 'success') {
                     alert(result.message);
                     closeDecompressModal();
-                    const currentPath = document.getElementById('current-path').textContent.replace('当前路径: /', '');
                     fetchFiles(currentPath); // 刷新文件列表
                 } else {
                     alert('解压失败: ' + result.message);

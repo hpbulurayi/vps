@@ -6,6 +6,7 @@ import tarfile
 from flask import Blueprint, render_template, jsonify, request, send_from_directory, current_app
 from werkzeug.utils import secure_filename
 from .utils import login_required, _get_safe_path
+import getpass
 
 file_manager_bp = Blueprint('file_manager', __name__, url_prefix='/file_manager')
 
@@ -34,15 +35,15 @@ def list_files():
                     stat_info = entry.stat()
                     is_dir = entry.is_dir()
                     
-                    # 动态确定基础目录
-                    import getpass
                     if getpass.getuser() == 'root':
                         base_dir = '/'
                     else:
                         base_dir = current_app.config['FILE_MANAGER_ROOT']
 
-                    # 计算相对路径，并规范化斜杠
-                    relative_item_path = os.path.relpath(entry.path, base_dir).replace("\\", "/")
+                    try:
+                        relative_item_path = os.path.relpath(entry.path, base_dir).replace("\\", "/")
+                    except ValueError:
+                        relative_item_path = entry.path.replace("\\", "/")
 
                     items.append({
                         "name": entry.name,
@@ -63,8 +64,6 @@ def list_files():
         end = start + page_size
         paginated_items = items[start:end]
 
-        # 添加上一级目录
-        import getpass
         base_dir = '/' if getpass.getuser() == 'root' else current_app.config['FILE_MANAGER_ROOT']
         if full_path != base_dir:
             parent_path = os.path.dirname(req_path)
@@ -81,7 +80,7 @@ def list_files():
             "items": paginated_items,
             "total_pages": total_pages,
             "current_page": page,
-            "current_full_path": req_path # 添加当前请求的路径，前端用于显示
+            "current_full_path": full_path.replace("\\", "/")
         })
     except Exception as e:
         return jsonify({"status": "error", "message": str(e)}), 500
@@ -206,18 +205,15 @@ def get_file_content():
             return error_response
         
         file_size = os.path.getsize(full_path)
-        # 限制最大预览大小为 1MB
-        max_preview_size = 1 * 1024 * 1024
+        max_preview_size = 1 * 1024 * 1024 
 
         truncated = file_size > max_preview_size
         read_size = max_preview_size if truncated else file_size
 
-        # 尝试以UTF-8读取，如果失败则尝试其他编码
         try:
             with open(full_path, 'r', encoding='utf-8') as f:
                 content = f.read(read_size)
         except UnicodeDecodeError:
-            # 尝试其他常见编码
             try:
                 with open(full_path, 'r', encoding='latin-1') as f:
                     content = f.read(read_size)
@@ -243,7 +239,6 @@ def save_file_content():
         if error_response:
             return error_response
             
-        # 如果文件不存在，则创建父目录
         os.makedirs(os.path.dirname(full_path), exist_ok=True)
 
         with open(full_path, 'w', encoding='utf-8') as f:
@@ -267,18 +262,15 @@ def handle_permissions():
             return error_response
 
         if request.method == 'GET':
-            # 获取权限
             current_mode = os.stat(full_path).st_mode
             octal_permission = oct(current_mode & 0o777)
             return jsonify({"status": "success", "path": req_path, "permissions": octal_permission})
         elif request.method == 'POST':
-            # 设置权限
             new_permission_octal = request.json.get('permissions')
             if not new_permission_octal:
                 return jsonify({"status": "error", "message": "Permissions are required."}), 400
             
             try:
-                # 将八进制字符串转换为整数
                 mode_int = int(new_permission_octal, 8)
                 os.chmod(full_path, mode_int)
                 return jsonify({"status": "success", "message": f"权限已更新为 {new_permission_octal}。"}), 200
@@ -295,7 +287,7 @@ def compress_file_or_folder():
     """压缩文件或文件夹。"""
     try:
         req_path = request.json.get('path', '')
-        archive_format = request.json.get('format', 'zip') # 默认为zip
+        archive_format = request.json.get('format', 'zip')
         
         if not req_path:
             return jsonify({"status": "error", "message": "Path is required."}), 400
@@ -342,7 +334,7 @@ def decompress_file():
     """解压文件。"""
     try:
         req_path = request.json.get('path', '')
-        destination = request.json.get('destination', '') # 解压目标路径
+        destination = request.json.get('destination', '')
         
         if not req_path:
             return jsonify({"status": "error", "message": "Path is required."}), 400
@@ -351,15 +343,13 @@ def decompress_file():
         if error_response:
             return error_response
 
-        # 确定解压目标路径
         if destination:
             full_destination, error_response = _get_safe_path(destination, check_exists=True, is_dir=True)
             if error_response:
                 return error_response
         else:
-            full_destination = os.path.dirname(full_path) # 默认为同级目录
+            full_destination = os.path.dirname(full_path)
 
-        # 确保目标路径存在
         os.makedirs(full_destination, exist_ok=True)
 
         if zipfile.is_zipfile(full_path):

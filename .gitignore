@@ -3,3 +3,4 @@ requirements.txt.bak
 credentials.json
 
 __pycache__
+*.bat

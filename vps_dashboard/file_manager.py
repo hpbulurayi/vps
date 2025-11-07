@@ -3,10 +3,10 @@ import shutil
 import datetime
 import zipfile
 import tarfile
+import string
 from flask import Blueprint, render_template, jsonify, request, send_from_directory, current_app
 from werkzeug.utils import secure_filename
-from .utils import login_required, _get_safe_path
-import getpass
+from .utils import login_required, _get_safe_path, is_admin
 
 file_manager_bp = Blueprint('file_manager', __name__, url_prefix='/file_manager')
 
@@ -24,7 +24,34 @@ def list_files():
         page = request.args.get('page', 1, type=int)
         page_size = request.args.get('page_size', 100, type=int)
 
-        full_path, error_response = _get_safe_path(req_path, check_exists=True, is_dir=True)
+        # 当 Windows 管理员访问根目录时，列出所有磁盘驱动器
+        if not req_path and os.name == 'nt' and is_admin():
+            items = []
+            for letter in string.ascii_uppercase:
+                drive = f"{letter}:\\"
+                if os.path.exists(drive):
+                    items.append({
+                        "name": f"磁盘 ({letter}:)",
+                        "type": "directory",
+                        "path": drive,
+                        "size": None,
+                        "last_modified": None,
+                        "permissions": None
+                    })
+            return jsonify({
+                "items": items,
+                "total_pages": 1,
+                "current_page": 1,
+                "current_full_path": "我的电脑"
+            })
+
+        # 针对 Windows 驱动器根路径的特殊处理
+        if os.name == 'nt' and req_path.endswith(':\\'):
+             _, error_response = _get_safe_path(req_path, check_exists=True, is_dir=True)
+             full_path = req_path
+        else:
+            full_path, error_response = _get_safe_path(req_path, check_exists=True, is_dir=True)
+        
         if error_response:
             return error_response
 
@@ -35,20 +62,10 @@ def list_files():
                     stat_info = entry.stat()
                     is_dir = entry.is_dir()
                     
-                    if getpass.getuser() == 'root':
-                        base_dir = '/'
-                    else:
-                        base_dir = current_app.config['FILE_MANAGER_ROOT']
-
-                    try:
-                        relative_item_path = os.path.relpath(entry.path, base_dir).replace("\\", "/")
-                    except ValueError:
-                        relative_item_path = entry.path.replace("\\", "/")
-
                     items.append({
                         "name": entry.name,
                         "type": "directory" if is_dir else "file",
-                        "path": relative_item_path,
+                        "path": entry.path.replace("\\", "/"),
                         "size": stat_info.st_size,
                         "last_modified": datetime.datetime.fromtimestamp(stat_info.st_mtime).isoformat(),
                         "permissions": oct(stat_info.st_mode & 0o777)
@@ -64,13 +81,23 @@ def list_files():
         end = start + page_size
         paginated_items = items[start:end]
 
-        base_dir = '/' if getpass.getuser() == 'root' else current_app.config['FILE_MANAGER_ROOT']
-        if full_path != base_dir:
-            parent_path = os.path.dirname(req_path)
+        # 添加 ".." 返回上一级
+        # 确定是否在根目录
+        is_root_path = (not is_admin() and full_path == current_app.config['FILE_MANAGER_ROOT']) or \
+                       (is_admin() and not req_path and os.name == 'nt') or \
+                       (is_admin() and full_path == os.path.abspath('/'))
+
+        if not is_root_path:
+            # 对于 Windows 驱动器根目录，返回到空路径以显示所有驱动器
+            if os.name == 'nt' and is_admin() and len(full_path) == 3 and full_path.endswith(':\\'):
+                parent_path = ''
+            else:
+                parent_path = os.path.dirname(full_path).replace("\\", "/")
+
             paginated_items.insert(0, {
                 "name": "..",
                 "type": "directory",
-                "path": parent_path.replace("\\", "/"),
+                "path": parent_path,
                 "size": None,
                 "last_modified": None,
                 "permissions": None

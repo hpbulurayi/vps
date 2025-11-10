@@ -4,6 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Web终端 - VPS-Lite-Dashboard</title>
+    <link rel="stylesheet" href="https://unpkg.com/xterm@4.11.0/css/xterm.css" />
     <style>
         body { font-family: sans-serif; margin: 2em; background-color: #1e1e1e; color: #d4d4d4; }
         .container { max-width: 1000px; margin: auto; background: #252526; padding: 20px; border-radius: 8px; box-shadow: 0 0 10px rgba(0,0,0,0.5); }
@@ -11,54 +12,20 @@
         .nav-buttons { margin-bottom: 1em; }
         .nav-buttons button { padding: 10px 15px; border: none; border-radius: 5px; cursor: pointer; background-color: #007acc; color: white; margin-right: 10px; }
         .nav-buttons button:hover { background-color: #005a9e; }
-        
-        #terminal {
-            background-color: #1e1e1e;
-            color: #d4d4d4;
-            font-family: 'Courier New', Courier, monospace;
-            padding: 15px;
-            border-radius: 5px;
-            height: 500px;
-            overflow-y: auto;
-            white-space: pre-wrap; /* 自动换行 */
-            word-wrap: break-word; /* 单词内换行 */
-            border: 1px solid #333;
-        }
-        .terminal-input-container {
-            display: flex;
-            margin-top: 10px;
-        }
-        #terminal-input {
-            flex-grow: 1;
-            background-color: #3c3c3c;
-            color: #d4d4d4;
-            border: 1px solid #333;
-            padding: 10px;
-            font-family: 'Courier New', Courier, monospace;
-            border-radius: 5px 0 0 5px;
-        }
-        #terminal-input:focus {
-            outline: none;
-            border-color: #007acc;
-        }
-        #send-button {
-            padding: 10px 15px;
-            border: 1px solid #333;
-            border-left: none;
-            background-color: #007acc;
-            color: white;
-            cursor: pointer;
-            border-radius: 0 5px 5px 0;
-        }
-        #send-button:hover {
-            background-color: #005a9e;
+        #terminal-container {
+            width: 100%;
+            height: calc(100vh - 250px); /* 动态调整高度 */
+            min-height: 400px;
         }
     </style>
 </head>
 <body>
     <div class="container">
         <h1>VPS-Lite-Dashboard - Web终端</h1>
-        <p><a href="{{ base_path }}/logout">退出登录</a></p>
+        <p>
+            <a href="{{ base_path }}/logout">退出登录</a>
+            <span style="float: right;">状态: <span id="status" style="background-color: #ff8383;">未连接</span></span>
+        </p>
         <div class="nav-buttons">
             <button onclick="location.href='{{ base_path }}/dashboard'">仪表盘</button>
             <button onclick="location.href='{{ base_path }}/file_manager'">文件管理</button>
@@ -67,58 +34,80 @@
             <button onclick="location.href='{{ base_path }}/systemd_manager'">定时任务</button>
         </div>
 
-        <div id="terminal"></div>
-        <div class="terminal-input-container">
-            <input type="text" id="terminal-input" placeholder="输入命令并按 Enter">
-            <button id="send-button">执行</button>
-        </div>
+        <div id="terminal-container"></div>
     </div>
 
-    <!-- 引入 Socket.IO 客户端库 -->
+    <!-- 引入 Socket.IO 和 xterm.js 库 -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.7.2/socket.io.min.js"></script>
+    <script src="https://unpkg.com/xterm@4.11.0/lib/xterm.js"></script>
+    <script src="https://unpkg.com/xterm-addon-fit@0.5.0/lib/xterm-addon-fit.js"></script>
+
     <script>
         document.addEventListener('DOMContentLoaded', () => {
             const basePath = '{{ base_path }}';
-            const terminal = document.getElementById('terminal');
-            const input = document.getElementById('terminal-input');
-            const sendButton = document.getElementById('send-button');
+            const terminalContainer = document.getElementById('terminal-container');
+            const statusEl = document.getElementById('status');
+
+            // 初始化 xterm.js
+            const term = new Terminal({
+                cursorBlink: true,
+                macOptionIsMeta: true,
+                scrollback: 1000,
+            });
+            const fitAddon = new FitAddon.FitAddon();
+            term.loadAddon(fitAddon);
+            term.open(terminalContainer);
+            fitAddon.fit();
 
             // 连接到 Socket.IO 服务器
-            const socket = io.connect(location.protocol + '//' + document.domain + ':' + location.port + '/terminal', {
+            const socket = io.connect(location.protocol + '//' + document.domain + ':' + location.port + '/pty', {
                 path: `${basePath}/socket.io`
             });
 
+            // --- Socket.IO 事件处理 ---
             socket.on('connect', () => {
-                console.log('Connected to terminal namespace.');
+                console.log('Connected to pty namespace.');
+                statusEl.innerHTML = '<span style="background-color: lightgreen;">已连接</span>';
+                fitToScreen(); // 连接成功后立即调整大小
             });
 
-            socket.on('response', (msg) => {
-                const p = document.createElement('p');
-                p.style.margin = '0';
-                p.textContent = msg.data;
-                terminal.appendChild(p);
-                // 自动滚动到底部
-                terminal.scrollTop = terminal.scrollHeight;
+            socket.on('disconnect', () => {
+                console.log('Disconnected from pty namespace.');
+                statusEl.innerHTML = '<span style="background-color: #ff8383;">已断开</span>';
             });
 
-            function executeCommand() {
-                const command = input.value;
-                if (command.trim() === '') {
-                    return;
+            socket.on('pty-output', (data) => {
+                term.write(data.output);
+            });
+
+            // --- xterm.js 事件处理 ---
+            term.onData((data) => {
+                socket.emit("pty-input", { input: data });
+            });
+
+            // --- 窗口大小自适应 ---
+            function fitToScreen() {
+                try {
+                    fitAddon.fit();
+                    const dims = { cols: term.cols, rows: term.rows };
+                    console.log("Sending new dimensions to server's pty:", dims);
+                    socket.emit("resize", dims);
+                } catch (e) {
+                    console.error("Error on fit: ", e);
                 }
-                socket.emit('execute_command', { command: command });
-                input.value = '';
             }
 
-            // 监听输入框的 Enter 键
-            input.addEventListener('keydown', (event) => {
-                if (event.key === 'Enter') {
-                    executeCommand();
-                }
-            });
+            function debounce(func, wait_ms) {
+                let timeout;
+                return function (...args) {
+                    const context = this;
+                    clearTimeout(timeout);
+                    timeout = setTimeout(() => func.apply(context, args), wait_ms);
+                };
+            }
 
-            // 监听发送按钮的点击事件
-            sendButton.addEventListener('click', executeCommand);
+            window.addEventListener('resize', debounce(fitToScreen, 50));
+            fitToScreen(); // 初始加载时调整一次
         });
     </script>
 </body>

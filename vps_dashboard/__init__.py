@@ -46,7 +46,8 @@ def create_app(debug=False):
     from .systemd_manager import systemd_manager_bp
     app.register_blueprint(systemd_manager_bp, url_prefix=f'{base_path}/systemd_manager')
 
-    from .terminal import terminal_bp, register_socketio_events
+    from .terminal import terminal_bp
+    from .pyxterm_terminal import register_socketio_events
     app.register_blueprint(terminal_bp, url_prefix=f'{base_path}/terminal')
     
     # 为 Socket.IO 设置路径

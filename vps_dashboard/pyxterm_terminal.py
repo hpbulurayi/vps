@@ -88,6 +88,8 @@ def register_socketio_events(socketio):
 
             if child_pid == 0:
                 # 这是子进程
+                # 为子进程设置 TERM 环境变量，以兼容 systemd 等非交互式环境
+                os.environ['TERM'] = 'xterm'
                 subprocess.run(cmd)
                 os._exit(0) # 确保子进程在完成后退出
             else:

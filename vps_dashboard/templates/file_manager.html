@@ -166,7 +166,12 @@
             <button onclick="createFolder()">创建文件夹</button>
             <input type="file" id="fileUploadInput">
             <button onclick="uploadFile()">上传文件</button>
-             <button onclick="createNewFile()">新建文件</button>
+            <button onclick="createNewFile()">新建文件</button>
+        </div>
+        <div class="file-actions" style="margin-top: 10px;">
+            <input type="text" id="search-query" placeholder="在当前目录搜索...">
+            <button onclick="searchFiles()">搜索</button>
+            <button onclick="fetchFiles(currentPath, 1)">清除搜索</button>
         </div>
 
         <table>
@@ -292,13 +297,34 @@
                     fetchFiles(currentPath, currentPage + 1);
                 }
             });
+            document.getElementById('search-query').addEventListener('keyup', (event) => {
+                if (event.key === 'Enter') {
+                    searchFiles();
+                }
+            });
         });
 
-        async function fetchFiles(path, page = 1) {
+        function searchFiles() {
+            const query = document.getElementById('search-query').value.trim();
+            if (!query) {
+                alert('请输入搜索内容。');
+                return;
+            }
+            fetchFiles(currentPath, 1, true, query);
+        }
+
+        async function fetchFiles(path, page = 1, search = false, query = '') {
             currentPath = path;
             currentPage = page;
             try {
-                const response = await fetch(`${basePath}/file_manager/files?path=${encodeURIComponent(path)}&page=${page}`);
+                let url = '';
+                if (search) {
+                    url = `${basePath}/file_manager/files/search?query=${encodeURIComponent(query)}&path=${encodeURIComponent(path)}`;
+                } else {
+                    url = `${basePath}/file_manager/files?path=${encodeURIComponent(path)}&page=${page}`;
+                }
+                
+                const response = await fetch(url);
                 const data = await response.json();
                 const fileList = document.getElementById('file-list');
                 const currentPathEl = document.getElementById('current-path');
@@ -315,7 +341,7 @@
                 totalPages = data.total_pages;
                 currentPage = data.current_page;
 
-                updatePaginationControls();
+                updatePaginationControls(data.is_search_result);
 
                 files.forEach(file => {
                     const row = fileList.insertRow();
@@ -395,7 +421,14 @@
             }
         }
         
-        function updatePaginationControls() {
+        function updatePaginationControls(is_search = false) {
+            const paginationDiv = document.querySelector('.pagination');
+            if (is_search) {
+                paginationDiv.style.display = 'none';
+                return;
+            }
+            
+            paginationDiv.style.display = 'block';
             const pageInfo = document.getElementById('page-info');
             const prevBtn = document.getElementById('prev-page-btn');
             const nextBtn = document.getElementById('next-page-btn');

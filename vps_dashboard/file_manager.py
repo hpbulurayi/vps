@@ -391,3 +391,55 @@ def decompress_file():
         return jsonify({"status": "success", "message": f"'{req_path}' 已成功解压到 '{destination if destination else os.path.basename(full_destination)}'。"}), 200
     except Exception as e:
         return jsonify({"status": "error", "message": str(e)}), 500
+@file_manager_bp.route('/files/search')
+@login_required
+def search_files():
+    """在指定路径下递归搜索文件和文件夹。"""
+    try:
+        query = request.args.get('query', '').strip()
+        search_path = request.args.get('path', '')
+        
+        if not query:
+            return jsonify({"status": "error", "message": "Search query is required."}), 400
+
+        full_path, error_response = _get_safe_path(search_path, check_exists=True, is_dir=True)
+        if error_response:
+            return error_response
+
+        items = []
+        for root, dirs, files in os.walk(full_path):
+            # 检查文件名和文件夹名是否匹配查询
+            for name in files + dirs:
+                if query.lower() in name.lower():
+                    try:
+                        entry_path = os.path.join(root, name)
+                        stat_info = os.stat(entry_path)
+                        is_dir = os.path.isdir(entry_path)
+                        
+                        # 安全检查：确保非管理员无法看到根目录之外的搜索结果
+                        if not is_admin():
+                            safe_root = current_app.config['FILE_MANAGER_ROOT']
+                            if not os.path.abspath(entry_path).startswith(safe_root):
+                                continue
+
+                        items.append({
+                            "name": name,
+                            "type": "directory" if is_dir else "file",
+                            "path": entry_path.replace("\\", "/"),
+                            "size": stat_info.st_size,
+                            "last_modified": datetime.datetime.fromtimestamp(stat_info.st_mtime).isoformat(),
+                            "permissions": oct(stat_info.st_mode & 0o777)
+                        })
+                    except (OSError, FileNotFoundError):
+                        # 忽略无法访问的文件或损坏的链接
+                        continue
+        
+        return jsonify({
+            "items": items,
+            "total_pages": 1,
+            "current_page": 1,
+            "current_full_path": f"在 '{full_path}' 中搜索 '{query}' 的结果",
+            "is_search_result": True
+        })
+    except Exception as e:
+        return jsonify({"status": "error", "message": str(e)}), 500

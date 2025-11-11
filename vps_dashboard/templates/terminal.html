@@ -59,9 +59,19 @@
             term.open(terminalContainer);
             fitAddon.fit();
 
-            // 连接到 Socket.IO 服务器
+            // 从 URL 获取 attach_screen 参数
+            const urlParams = new URLSearchParams(window.location.search);
+            const attachScreen = urlParams.get('attach_screen');
+
+            const query = {};
+            if (attachScreen) {
+                query.attach_screen = attachScreen;
+            }
+
+            // 连接到 Socket.IO 服务器，并传递查询参数
             const socket = io.connect(location.protocol + '//' + document.domain + ':' + location.port + '/pty', {
-                path: `${basePath}/socket.io`
+                path: `${basePath}/socket.io`,
+                query: query
             });
 
             // --- Socket.IO 事件处理 ---

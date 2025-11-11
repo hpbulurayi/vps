@@ -77,8 +77,13 @@ def register_socketio_events(socketio):
             return
 
         if os.name != 'nt':
-            # 为非 Windows 系统创建 PTY 进程
-            cmd = ["bash"]  # 或者从配置中读取
+            # 检查是否要附加到现有的 screen 会话
+            attach_to = request.args.get('attach_screen')
+            if attach_to:
+                cmd = ["screen", "-x", attach_to]
+            else:
+                cmd = ["bash"]
+
             (child_pid, fd) = pty.fork()
 
             if child_pid == 0:

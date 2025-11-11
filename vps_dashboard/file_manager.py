@@ -479,9 +479,14 @@ def add_bookmark():
     path = request.json.get('path')
     if not path:
         return jsonify({"status": "error", "message": "Path is required."}), 400
+
+    # 安全检查：在添加书签前验证路径是否有效且在允许范围内
+    full_path, error_response = _get_safe_path(path, check_exists=True, is_dir=True)
+    if error_response:
+        return error_response
     
     bookmarks = _load_bookmarks()
-    normalized_path = path.replace("\\", "/")
+    normalized_path = full_path.replace("\\", "/")
     
     if normalized_path not in bookmarks:
         bookmarks.append(normalized_path)

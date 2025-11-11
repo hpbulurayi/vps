@@ -3,6 +3,7 @@ import shutil
 import datetime
 import zipfile
 import tarfile
+import json
 import string
 from flask import Blueprint, render_template, jsonify, request, send_from_directory, current_app
 from werkzeug.utils import secure_filename
@@ -443,3 +444,70 @@ def search_files():
         })
     except Exception as e:
         return jsonify({"status": "error", "message": str(e)}), 500
+BOOKMARKS_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'bookmarks.json')
+
+def _load_bookmarks():
+    """从 bookmarks.json 加载书签。"""
+    if not os.path.exists(BOOKMARKS_FILE):
+        return []
+    try:
+        with open(BOOKMARKS_FILE, 'r', encoding='utf-8') as f:
+            return json.load(f)
+    except (IOError, json.JSONDecodeError):
+        return []
+
+def _save_bookmarks(bookmarks):
+    """保存书签到 bookmarks.json。"""
+    try:
+        with open(BOOKMARKS_FILE, 'w', encoding='utf-8') as f:
+            json.dump(bookmarks, f, indent=4, ensure_ascii=False)
+        return True
+    except IOError:
+        return False
+
+@file_manager_bp.route('/bookmarks', methods=['GET'])
+@login_required
+def get_bookmarks():
+    """获取所有书签。"""
+    bookmarks = _load_bookmarks()
+    return jsonify(bookmarks)
+
+@file_manager_bp.route('/bookmarks/add', methods=['POST'])
+@login_required
+def add_bookmark():
+    """添加一个新的书签。"""
+    path = request.json.get('path')
+    if not path:
+        return jsonify({"status": "error", "message": "Path is required."}), 400
+    
+    bookmarks = _load_bookmarks()
+    normalized_path = path.replace("\\", "/")
+    
+    if normalized_path not in bookmarks:
+        bookmarks.append(normalized_path)
+        if _save_bookmarks(bookmarks):
+            return jsonify({"status": "success", "message": "Bookmark added."})
+        else:
+            return jsonify({"status": "error", "message": "Failed to save bookmarks."}), 500
+    else:
+        return jsonify({"status": "success", "message": "Bookmark already exists."})
+
+@file_manager_bp.route('/bookmarks/delete', methods=['POST'])
+@login_required
+def delete_bookmark():
+    """删除一个书签。"""
+    path = request.json.get('path')
+    if not path:
+        return jsonify({"status": "error", "message": "Path is required."}), 400
+
+    bookmarks = _load_bookmarks()
+    normalized_path = path.replace("\\", "/")
+    
+    if normalized_path in bookmarks:
+        bookmarks.remove(normalized_path)
+        if _save_bookmarks(bookmarks):
+            return jsonify({"status": "success", "message": "Bookmark deleted."})
+        else:
+            return jsonify({"status": "error", "message": "Failed to save bookmarks."}), 500
+    else:
+        return jsonify({"status": "error", "message": "Bookmark not found."}), 404

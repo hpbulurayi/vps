@@ -29,6 +29,12 @@
         .action-buttons .delete-btn:hover { background-color: #c82333; }
         .current-path { font-size: 1.2em; margin-bottom: 1em; }
 
+        #bookmarks { margin-bottom: 1em; padding-bottom: 1em; border-bottom: 1px solid #ddd; }
+        .bookmark-item { display: inline-block; margin-right: 10px; background: #e0e0e0; padding: 5px 10px; border-radius: 15px; font-size: 0.9em; }
+        .bookmark-item a { text-decoration: none; color: #333; }
+        .bookmark-item .delete-bookmark { color: #999; cursor: pointer; margin-left: 8px; font-weight: bold; }
+        .bookmark-item .delete-bookmark:hover { color: #f00; }
+
         .pagination {
             margin-top: 1em;
             text-align: center;
@@ -161,6 +167,11 @@
         </div>
         <h3 class="current-path" id="current-path">/</h3>
 
+        <div id="bookmarks">
+            <h4>书签</h4>
+            <div id="bookmark-list"></div>
+        </div>
+
         <div class="file-actions">
             <input type="text" id="new-folder-name" placeholder="新文件夹名称">
             <button onclick="createFolder()">创建文件夹</button>
@@ -287,6 +298,7 @@
 
         document.addEventListener('DOMContentLoaded', () => {
             fetchFiles('');
+            fetchBookmarks();
             document.getElementById('prev-page-btn').addEventListener('click', () => {
                 if (currentPage > 1) {
                     fetchFiles(currentPath, currentPage - 1);
@@ -390,6 +402,14 @@
                             decompressButton.onclick = () => openDecompressModal(file.path);
                             actionsCell.appendChild(decompressButton);
                         }
+                    }
+
+                    if (file.type === 'directory' && file.name !== '..') {
+                        const bookmarkButton = document.createElement('button');
+                        bookmarkButton.textContent = '⭐';
+                        bookmarkButton.title = '添加书签';
+                        bookmarkButton.onclick = () => addBookmark(file.path);
+                        actionsCell.appendChild(bookmarkButton);
                     }
                     
                     if (file.name !== '..') { // 不允许重命名、删除、设置“..”的权限或压缩
@@ -839,6 +859,79 @@
             const sizes = ['Bytes', 'KB', 'MB', 'GB', 'TB', 'PB', 'EB', 'ZB', 'YB'];
             const i = Math.floor(Math.log(bytes) / Math.log(k));
             return parseFloat((bytes / Math.pow(k, i)).toFixed(dm)) + ' ' + sizes[i];
+        }
+
+        // --- 书签功能 ---
+        async function fetchBookmarks() {
+            try {
+                const response = await fetch(`${basePath}/file_manager/bookmarks`);
+                const bookmarks = await response.json();
+                const bookmarkListDiv = document.getElementById('bookmark-list');
+                bookmarkListDiv.innerHTML = '';
+                bookmarks.forEach(path => {
+                    const bookmarkSpan = document.createElement('span');
+                    bookmarkSpan.className = 'bookmark-item';
+                    
+                    const link = document.createElement('a');
+                    link.href = '#';
+                    link.textContent = path.split('/').pop() || path; // 显示最后一部分作为名称
+                    link.onclick = (e) => {
+                        e.preventDefault();
+                        fetchFiles(path, 1);
+                    };
+
+                    const deleteBtn = document.createElement('span');
+                    deleteBtn.className = 'delete-bookmark';
+                    deleteBtn.textContent = 'x';
+                    deleteBtn.title = '删除书签';
+                    deleteBtn.onclick = () => deleteBookmark(path);
+
+                    bookmarkSpan.appendChild(link);
+                    bookmarkSpan.appendChild(deleteBtn);
+                    bookmarkListDiv.appendChild(bookmarkSpan);
+                });
+            } catch (error) {
+                console.error('Error fetching bookmarks:', error);
+            }
+        }
+
+        async function addBookmark(path) {
+            try {
+                const response = await fetch(`${basePath}/file_manager/bookmarks/add`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ path })
+                });
+                const result = await response.json();
+                if (result.status === 'success') {
+                    fetchBookmarks(); // 重新加载书签
+                } else {
+                    alert('添加书签失败: ' + result.message);
+                }
+            } catch (error) {
+                console.error('Error adding bookmark:', error);
+            }
+        }
+
+        async function deleteBookmark(path) {
+            if (!confirm(`确定要删除书签 "${path}" 吗？`)) {
+                return;
+            }
+            try {
+                const response = await fetch(`${basePath}/file_manager/bookmarks/delete`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ path })
+                });
+                const result = await response.json();
+                if (result.status === 'success') {
+                    fetchBookmarks(); // 重新加载书签
+                } else {
+                    alert('删除书签失败: ' + result.message);
+                }
+            } catch (error) {
+                console.error('Error deleting bookmark:', error);
+            }
         }
     </script>
 </body>

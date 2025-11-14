@@ -40,6 +40,37 @@
         .action-buttons .delete-btn:hover { background-color: #c82333; }
         .current-path { font-size: 1.2em; margin-bottom: 1em; }
 
+        #task-status-container {
+            background-color: #f8f9fa;
+            border: 1px solid #dee2e6;
+            border-radius: 5px;
+            padding: 10px;
+            margin-bottom: 1em;
+            display: none; /* Initially hidden */
+        }
+        #task-list {
+            list-style-type: none;
+            padding-left: 0;
+            margin: 0;
+        }
+        .task-item {
+            padding: 8px 5px;
+            border-bottom: 1px solid #eee;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        .task-item:last-child { border-bottom: none; }
+        .task-item .status-running { color: #007bff; font-style: italic; }
+        .task-item .status-completed { color: #28a745; }
+        .task-item .status-failed { color: #dc3545; font-weight: bold; }
+        .task-item .remove-task-btn {
+            cursor: pointer;
+            color: #aaa;
+            font-weight: bold;
+            padding: 0 5px;
+        }
+
         #bookmarks { margin-bottom: 1em; padding-bottom: 1em; border-bottom: 1px solid #ddd; }
         .bookmark-item { display: inline-block; margin-right: 10px; background: #e0e0e0; padding: 5px 10px; border-radius: 15px; font-size: 0.9em; }
         .bookmark-item a { text-decoration: none; color: #333; }
@@ -177,6 +208,14 @@
             <button onclick="location.href='{{ base_path }}/screen_manager'">Screen会话</button>
         </div>
         <h3 class="current-path" id="current-path">/</h3>
+
+        <div id="task-status-container">
+            <div style="display: flex; justify-content: space-between; align-items: center;">
+                <h5>后台任务</h5>
+                <button onclick="clearCompletedTasks()" style="padding: 2px 8px; font-size: 0.8em;">清除已完成</button>
+            </div>
+            <ul id="task-list"></ul>
+        </div>
 
         <div id="bookmarks">
             <h4>书签</h4>
@@ -322,6 +361,7 @@
         document.addEventListener('DOMContentLoaded', () => {
             fetchFiles('');
             fetchBookmarks();
+            fetchTasks(); // 页面加载时获取任务列表
             document.getElementById('prev-page-btn').addEventListener('click', () => {
                 if (currentPage > 1) {
                     fetchFiles(currentPath, currentPage - 1);
@@ -842,17 +882,126 @@
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ path: currentCompressPath, format: format })
                 });
-                const result = await response.json();
-                if (result.status === 'success') {
-                    alert(result.message);
+
+                if (response.status === 202) { // 202 Accepted
+                    const result = await response.json();
                     closeCompressModal();
-                    fetchFiles(currentPath); // 刷新文件列表
+                    const taskDescription = `压缩 '${currentCompressPath}'`;
+                    addTaskToList(result.task_id, taskDescription);
+                    pollTaskStatus(result.task_id, taskDescription);
                 } else {
-                    alert('压缩失败: ' + result.message);
+                    const result = await response.json();
+                    alert('提交压缩任务失败: ' + result.message);
                 }
             } catch (error) {
-                console.error('Error compressing file/folder:', error);
-                alert('压缩时发生错误。');
+                console.error('Error starting compression task:', error);
+                alert('开始压缩任务时发生网络错误。');
+            }
+        }
+
+        function addTaskToList(taskId, description) {
+            const taskList = document.getElementById('task-list');
+            const container = document.getElementById('task-status-container');
+            container.style.display = 'block';
+
+            const li = document.createElement('li');
+            li.id = `task-${taskId}`;
+            li.className = 'task-item';
+            li.innerHTML = `
+                <span>${description}</span>
+                <span class="status-running">进行中...</span>
+            `;
+            taskList.appendChild(li);
+        }
+
+        function updateTaskInList(taskId, message, statusClass, description) {
+            const taskItem = document.getElementById(`task-${taskId}`);
+            if (taskItem) {
+                taskItem.innerHTML = `
+                    <span>${description}</span>
+                    <span class="${statusClass}">${message}</span>
+                    <span class="remove-task-btn" onclick="removeTaskFromList('${taskId}')">×</span>
+                `;
+            }
+        }
+
+        function removeTaskFromList(taskId) {
+            const taskItem = document.getElementById(`task-${taskId}`);
+            if (taskItem) {
+                taskItem.remove();
+            }
+            // 如果列表为空，则隐藏容器
+            const taskList = document.getElementById('task-list');
+            if (taskList.children.length === 0) {
+                document.getElementById('task-status-container').style.display = 'none';
+            }
+        }
+
+        async function pollTaskStatus(taskId, description) {
+            const intervalId = setInterval(async () => {
+                try {
+                    const response = await fetch(`${basePath}/file_manager/task/${taskId}`);
+                    if (!response.ok) {
+                        throw new Error(`HTTP error! status: ${response.status}`);
+                    }
+                    const task = await response.json();
+
+                    if (task.status === 'completed') {
+                        clearInterval(intervalId);
+                        updateTaskInList(taskId, `完成: ${task.result}`, 'status-completed', description);
+                        fetchFiles(currentPath);
+                    } else if (task.status === 'failed') {
+                        clearInterval(intervalId);
+                        updateTaskInList(taskId, `失败: ${task.error}`, 'status-failed', description);
+                    }
+                    // 如果任务仍在 'pending' 或 'running'，则继续轮询
+                } catch (error) {
+                    clearInterval(intervalId);
+                    console.error('Error polling task status:', error);
+                    updateTaskInList(taskId, '轮询出错', 'status-failed', description);
+                }
+            }, 3000); // 每3秒轮询一次
+        }
+
+        async function fetchTasks() {
+            try {
+                const response = await fetch(`${basePath}/file_manager/tasks`);
+                const tasks = await response.json();
+                for (const taskId in tasks) {
+                    const task = tasks[taskId];
+                    const description = task.description || `任务 ${taskId.substring(0, 8)}`;
+                    addTaskToList(taskId, description);
+
+                    if (task.status === 'completed') {
+                        updateTaskInList(taskId, `完成: ${task.result}`, 'status-completed', description);
+                    } else if (task.status === 'failed') {
+                        updateTaskInList(taskId, `失败: ${task.error}`, 'status-failed', description);
+                    } else { // pending or running
+                        pollTaskStatus(taskId, description);
+                    }
+                }
+            } catch (error) {
+                console.error('Error fetching tasks:', error);
+            }
+        }
+
+        async function clearCompletedTasks() {
+            try {
+                const response = await fetch(`${basePath}/file_manager/tasks/clear`, { method: 'POST' });
+                const result = await response.json();
+                alert(result.message);
+                // 从UI上移除所有已完成/失败的任务
+                document.querySelectorAll('.status-completed, .status-failed').forEach(el => {
+                    const taskItem = el.closest('.task-item');
+                    if (taskItem) {
+                        taskItem.remove();
+                    }
+                });
+                if (document.getElementById('task-list').children.length === 0) {
+                    document.getElementById('task-status-container').style.display = 'none';
+                }
+            } catch (error) {
+                console.error('Error clearing tasks:', error);
             }
         }
 
@@ -1033,19 +1182,27 @@
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ paths: paths })
                 });
-                const result = await response.json();
                 
-                alert(result.message);
-
-                if (result.status === 'success' || result.status === 'partial_success') {
-                    fetchFiles(currentPath); // 刷新文件列表
-                    document.getElementById('select-all-checkbox').checked = false; // 取消全选
-                    updateBatchActionsVisibility();
+                if (response.status === 202) {
+                    const result = await response.json();
+                    const taskDescription = `批量删除 ${paths.length} 个项目`;
+                    addTaskToList(result.task_id, taskDescription);
+                    pollTaskStatus(result.task_id, taskDescription);
+                } else {
+                    const result = await response.json();
+                    alert('提交删除任务失败: ' + result.message);
                 }
             } catch (error) {
                 console.error('Error during batch delete:', error);
                 alert('批量删除时发生网络错误。');
             }
+            // 清理UI
+            document.querySelectorAll('#file-list .file-checkbox:checked').forEach(c => c.checked = false);
+            document.getElementById('select-all-checkbox').checked = false;
+            updateBatchActionsVisibility();
+            // 清空剪贴板以避免误操作
+            clipboard.type = null;
+            clipboard.paths = [];
         }
 
         function copySelected() {
@@ -1066,7 +1223,7 @@
                 alert('请选择要剪切的项目。');
                 return;
             }
-            clipboard.type = 'cut';
+            clipboard.type = 'move';
             clipboard.paths = paths;
             alert(`已剪切 ${paths.length} 个项目。`);
             updateBatchActionsVisibility(); // 显示粘贴按钮
@@ -1088,12 +1245,16 @@
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ sources: paths, destination: destination })
                 });
-                const result = await response.json();
-                
-                alert(result.message);
 
-                if (result.status === 'success' || result.status === 'partial_success') {
-                    fetchFiles(currentPath); // 刷新
+                if (response.status === 202) {
+                    const result = await response.json();
+                    const op_text = operation === 'copy' ? '复制' : '移动';
+                    const taskDescription = `${op_text} ${paths.length} 个项目到 ${destination || '当前目录'}`;
+                    addTaskToList(result.task_id, taskDescription);
+                    pollTaskStatus(result.task_id, taskDescription);
+                } else {
+                    const result = await response.json();
+                    alert(`提交 ${operation} 任务失败: ` + result.message);
                 }
             } catch (error) {
                 console.error(`Error during ${operation}:`, error);

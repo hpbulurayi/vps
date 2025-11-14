@@ -1,5 +1,6 @@
 from flask import Flask, redirect, url_for, g
 from flask_socketio import SocketIO
+from flask_apscheduler import APScheduler
 import os
 import json
 from .utils import login_required # 导入 login_required
@@ -62,6 +63,12 @@ def create_app(debug=False):
     @login_required # 添加 login_required 装饰器
     def index():
         return redirect(url_for('dashboard.dashboard_index'))
+
+    # 初始化 APScheduler
+    scheduler = APScheduler()
+    scheduler.init_app(app)
+    scheduler.start()
+    app.scheduler = scheduler
 
     socketio.init_app(app, async_mode='eventlet', path=socketio_path)
     return app, socketio

@@ -5,11 +5,60 @@ import zipfile
 import tarfile
 import json
 import string
+import uuid
 from flask import Blueprint, render_template, jsonify, request, send_from_directory, current_app
 from werkzeug.utils import secure_filename
 from .utils import login_required, _get_safe_path, is_admin
 
 file_manager_bp = Blueprint('file_manager', __name__, url_prefix='/file_manager')
+
+# 用于存储异步任务的状态
+tasks = {}
+
+def run_compression(app, task_id, full_path, archive_format, description):
+   """在后台线程中运行的实际压缩函数。"""
+   with app.app_context():
+       try:
+           tasks[task_id].update({'status': 'running', 'description': description})
+           
+           output_filename = os.path.basename(full_path)
+           output_dir = os.path.dirname(full_path)
+
+           if os.path.isfile(full_path):
+               if archive_format == 'zip':
+                   archive_name = os.path.join(output_dir, f"{output_filename}.zip")
+                   with zipfile.ZipFile(archive_name, 'w', zipfile.ZIP_DEFLATED) as zf:
+                       zf.write(full_path, os.path.basename(full_path))
+               elif archive_format == 'tar.gz':
+                   archive_name = os.path.join(output_dir, f"{output_filename}.tar.gz")
+                   with tarfile.open(archive_name, "w:gz") as tar:
+                       tar.add(full_path, arcname=os.path.basename(full_path))
+               else:
+                   raise ValueError("不支持的压缩格式。")
+           elif os.path.isdir(full_path):
+               if archive_format == 'zip':
+                   archive_name = os.path.join(output_dir, output_filename)
+                   shutil.make_archive(archive_name, 'zip', full_path)
+                   archive_name = f"{archive_name}.zip"
+               elif archive_format == 'tar.gz':
+                   archive_name = os.path.join(output_dir, output_filename)
+                   shutil.make_archive(archive_name, 'gztar', full_path)
+                   archive_name = f"{archive_name}.tar.gz"
+               else:
+                   raise ValueError("不支持的压缩格式。")
+           else:
+               raise ValueError("无法压缩非文件或文件夹的路径。")
+           
+           tasks[task_id]['status'] = 'completed'
+           tasks[task_id]['result'] = f"'{os.path.basename(full_path)}' 已成功压缩为 '{os.path.basename(archive_name)}'。"
+
+       except Exception as e:
+           tasks[task_id].update({
+               'status': 'failed',
+               'error': str(e),
+               'description': description
+           })
+
 
 @file_manager_bp.route('/')
 @login_required
@@ -149,114 +198,154 @@ def delete_file():
     except Exception as e:
         return jsonify({"status": "error", "message": str(e)}), 500
 
+def run_file_operation(app, task_id, operation, **kwargs):
+   """
+   通用的后台文件操作执行函数。
+   :param app: Flask app 上下文
+   :param task_id: 任务ID
+   :param operation: 'delete', 'copy', 'move'
+   :param kwargs: 操作所需的参数 (例如 paths, sources, destination)
+   """
+   with app.app_context():
+       try:
+           tasks[task_id]['status'] = 'running'
+           success_count = 0
+           errors = []
+
+           if operation == 'delete':
+               paths = kwargs.get('paths', [])
+               for path in paths:
+                   try:
+                       full_path, error_response = _get_safe_path(path, check_exists=True)
+                       if error_response:
+                           errors.append(f"路径 '{path}' 无效或无权限。")
+                           continue
+                       if os.path.isfile(full_path):
+                           os.remove(full_path)
+                       elif os.path.isdir(full_path):
+                           shutil.rmtree(full_path)
+                       success_count += 1
+                   except Exception as e:
+                       errors.append(f"删除 '{path}' 失败: {str(e)}")
+               message = f"成功删除 {success_count} 个项目。"
+
+           elif operation in ['copy', 'move']:
+               sources = kwargs.get('sources', [])
+               destination = kwargs.get('destination', '')
+               dest_full_path, error_response = _get_safe_path(destination, check_exists=True, is_dir=True)
+               if error_response:
+                   raise ValueError(f"无效的目标路径: {destination}")
+
+               for src_rel_path in sources:
+                   try:
+                       src_full_path, error_response = _get_safe_path(src_rel_path, check_exists=True)
+                       if error_response:
+                           errors.append(f"源路径 '{src_rel_path}' 无效或无权限。")
+                           continue
+                       
+                       base_name = os.path.basename(src_full_path)
+                       final_dest_path = os.path.join(dest_full_path, base_name)
+
+                       if os.path.exists(final_dest_path):
+                           errors.append(f"目标路径 '{final_dest_path.replace(os.path.sep, '/')}' 已存在。")
+                           continue
+                       
+                       if operation == 'copy':
+                           if os.path.isdir(src_full_path):
+                               shutil.copytree(src_full_path, final_dest_path)
+                           else:
+                               shutil.copy2(src_full_path, final_dest_path)
+                       elif operation == 'move':
+                           shutil.move(src_full_path, final_dest_path)
+                       
+                       success_count += 1
+                   except Exception as e:
+                       errors.append(f"处理 '{src_rel_path}' 时出错: {str(e)}")
+               op_text = "复制" if operation == "copy" else "移动"
+               message = f"成功{op_text} {success_count} 个项目到 '{destination}'。"
+
+           if errors:
+               message += f" {len(errors)} 个项目失败。详情: " + "; ".join(errors)
+               tasks[task_id]['status'] = 'completed'
+               tasks[task_id]['result'] = message
+           else:
+               tasks[task_id]['status'] = 'completed'
+               tasks[task_id]['result'] = message
+
+       except Exception as e:
+           tasks[task_id].update({
+               'status': 'failed',
+               'error': str(e),
+               'description': tasks[task_id].get('description', '未知操作')
+           })
+
+
 @file_manager_bp.route('/files/batch-delete', methods=['POST'])
 @login_required
 def batch_delete_files():
-   """批量删除文件或文件夹。"""
-   try:
-       paths = request.json.get('paths', [])
-       if not paths:
-           return jsonify({"status": "error", "message": "未提供要删除的路径。"}), 400
+   """提交一个异步批量删除任务。"""
+   paths = request.json.get('paths', [])
+   if not paths:
+       return jsonify({"status": "error", "message": "未提供要删除的路径。"}), 400
 
-       success_count = 0
-       errors = []
-
-       for path in paths:
-           try:
-               full_path, error_response = _get_safe_path(path, check_exists=True)
-               if error_response:
-                   errors.append(f"路径 '{path}' 无效或无权限。")
-                   continue
-
-               if os.path.isfile(full_path):
-                   os.remove(full_path)
-                   success_count += 1
-               elif os.path.isdir(full_path):
-                   shutil.rmtree(full_path)
-                   success_count += 1
-           except Exception as e:
-               errors.append(f"删除 '{path}' 失败: {str(e)}")
-
-       message = f"成功删除 {success_count} 个项目。"
-       if errors:
-           message += f" {len(errors)} 个项目删除失败。详情: " + "; ".join(errors)
-           return jsonify({"status": "partial_success", "message": message, "errors": errors})
-       
-       return jsonify({"status": "success", "message": message})
-
-   except Exception as e:
-       return jsonify({"status": "error", "message": f"批量删除操作期间发生意外错误: {str(e)}"}), 500
-
-def _handle_file_operation(operation, sources, destination):
-   """
-   辅助函数，用于处理文件/文件夹的复制或移动操作。
-   :param operation: 'copy' 或 'move'
-   :param sources: 源路径列表
-   :param destination: 目标目录路径
-   """
-   success_count = 0
-   errors = []
-
-   # 1. 验证目标路径
-   dest_full_path, error_response = _get_safe_path(destination, check_exists=True, is_dir=True)
-   if error_response:
-       return jsonify({"status": "error", "message": f"无效的目标路径: {destination}"}), 500
-
-   for src_rel_path in sources:
-       try:
-           # 2. 验证源路径
-           src_full_path, error_response = _get_safe_path(src_rel_path, check_exists=True)
-           if error_response:
-               errors.append(f"源路径 '{src_rel_path}' 无效或无权限。")
-               continue
-
-           # 3. 构建最终的目标路径
-           base_name = os.path.basename(src_full_path)
-           final_dest_path = os.path.join(dest_full_path, base_name)
-
-           # 4. 检查目标路径是否已存在
-           if os.path.exists(final_dest_path):
-               errors.append(f"目标路径 '{final_dest_path.replace(os.path.sep, '/')}' 已存在。")
-               continue
-           
-           # 5. 执行操作
-           if operation == 'copy':
-               if os.path.isdir(src_full_path):
-                   shutil.copytree(src_full_path, final_dest_path)
-               else:
-                   shutil.copy2(src_full_path, final_dest_path)
-           elif operation == 'move':
-               shutil.move(src_full_path, final_dest_path)
-           
-           success_count += 1
-
-       except Exception as e:
-           errors.append(f"处理 '{src_rel_path}' 时出错: {str(e)}")
-
-   message = f"成功{operation}了 {success_count} 个项目到 '{destination}'。"
-   if errors:
-       message += f" {len(errors)} 个项目失败。详情: " + "; ".join(errors)
-       return jsonify({"status": "partial_success", "message": message, "errors": errors})
+   task_id = str(uuid.uuid4())
+   tasks[task_id] = {'status': 'pending'}
    
-   return jsonify({"status": "success", "message": message})
+   task_description = f"批量删除 {len(paths)} 个项目"
+   tasks[task_id]['description'] = task_description
+   current_app.scheduler.add_job(
+       func=run_file_operation,
+       args=[current_app._get_current_object(), task_id, 'delete'],
+       kwargs={'paths': paths, 'description': task_description},
+       id=task_id
+   )
+   return jsonify({"status": "success", "message": "批量删除任务已开始。", "task_id": task_id}), 202
 
 
 @file_manager_bp.route('/files/copy', methods=['POST'])
 @login_required
 def copy_files():
-   """复制一个或多个文件/文件夹到指定位置。"""
+   """提交一个异步复制任务。"""
    sources = request.json.get('sources', [])
    destination = request.json.get('destination', '')
-   return _handle_file_operation('copy', sources, destination)
+   if not sources or not destination:
+       return jsonify({"status": "error", "message": "源和目标路径不能为空。"}), 400
+
+   task_id = str(uuid.uuid4())
+   tasks[task_id] = {'status': 'pending'}
+
+   task_description = f"复制 {len(sources)} 个项目到 {destination or '当前目录'}"
+   tasks[task_id]['description'] = task_description
+   current_app.scheduler.add_job(
+       func=run_file_operation,
+       args=[current_app._get_current_object(), task_id, 'copy'],
+       kwargs={'sources': sources, 'destination': destination, 'description': task_description},
+       id=task_id
+   )
+   return jsonify({"status": "success", "message": "复制任务已开始。", "task_id": task_id}), 202
 
 
 @file_manager_bp.route('/files/move', methods=['POST'])
 @login_required
 def move_files():
-   """移动一个或多个文件/文件夹到指定位置。"""
+   """提交一个异步移动任务。"""
    sources = request.json.get('sources', [])
    destination = request.json.get('destination', '')
-   return _handle_file_operation('move', sources, destination)
+   if not sources or not destination:
+       return jsonify({"status": "error", "message": "源和目标路径不能为空。"}), 400
+
+   task_id = str(uuid.uuid4())
+   tasks[task_id] = {'status': 'pending'}
+
+   task_description = f"移动 {len(sources)} 个项目到 {destination or '当前目录'}"
+   tasks[task_id]['description'] = task_description
+   current_app.scheduler.add_job(
+       func=run_file_operation,
+       args=[current_app._get_current_object(), task_id, 'move'],
+       kwargs={'sources': sources, 'destination': destination, 'description': task_description},
+       id=task_id
+   )
+   return jsonify({"status": "success", "message": "移动任务已开始。", "task_id": task_id}), 202
 
 @file_manager_bp.route('/files/upload', methods=['POST'])
 @login_required
@@ -421,49 +510,73 @@ def handle_permissions():
 @file_manager_bp.route('/files/compress', methods=['POST'])
 @login_required
 def compress_file_or_folder():
-    """压缩文件或文件夹。"""
-    try:
-        req_path = request.json.get('path', '')
-        archive_format = request.json.get('format', 'zip')
-        
-        if not req_path:
-            return jsonify({"status": "error", "message": "Path is required."}), 400
+    """提交一个异步压缩任务。"""
+    req_path = request.json.get('path', '')
+    archive_format = request.json.get('format', 'zip')
+    
+    if not req_path:
+        return jsonify({"status": "error", "message": "Path is required."}), 400
 
-        full_path, error_response = _get_safe_path(req_path, check_exists=True)
-        if error_response:
-            return error_response
+    full_path, error_response = _get_safe_path(req_path, check_exists=True)
+    if error_response:
+        return error_response
 
-        output_filename = os.path.basename(full_path)
-        output_dir = os.path.dirname(full_path)
+    task_id = str(uuid.uuid4())
+    tasks[task_id] = {'status': 'pending'}
+    
+    task_description = f"压缩 '{req_path}'"
+    tasks[task_id]['description'] = task_description
+    # 使用 'app=current_app._get_current_object()' 来传递 app 上下文
+    current_app.scheduler.add_job(
+        func=run_compression,
+        args=[current_app._get_current_object(), task_id, full_path, archive_format, task_description],
+        id=task_id
+    )
+    
+    return jsonify({"status": "success", "message": "压缩任务已开始。", "task_id": task_id}), 202
 
-        if os.path.isfile(full_path):
-            if archive_format == 'zip':
-                archive_name = os.path.join(output_dir, f"{output_filename}.zip")
-                with zipfile.ZipFile(archive_name, 'w', zipfile.ZIP_DEFLATED) as zf:
-                    zf.write(full_path, os.path.basename(full_path))
-            elif archive_format == 'tar.gz':
-                archive_name = os.path.join(output_dir, f"{output_filename}.tar.gz")
-                with tarfile.open(archive_name, "w:gz") as tar:
-                    tar.add(full_path, arcname=os.path.basename(full_path))
-            else:
-                return jsonify({"status": "error", "message": "不支持的压缩格式。"}), 400
-        elif os.path.isdir(full_path):
-            if archive_format == 'zip':
-                archive_name = os.path.join(output_dir, output_filename)
-                shutil.make_archive(archive_name, 'zip', full_path)
-                archive_name = f"{output_filename}.zip"
-            elif archive_format == 'tar.gz':
-                archive_name = os.path.join(output_dir, output_filename)
-                shutil.make_archive(archive_name, 'gztar', full_path)
-                archive_name = f"{output_filename}.tar.gz"
-            else:
-                return jsonify({"status": "error", "message": "不支持的压缩格式。"}), 400
+@file_manager_bp.route('/task/<task_id>', methods=['GET'])
+@login_required
+def task_status(task_id):
+   """获取异步任务的状态。"""
+   task = tasks.get(task_id)
+   if not task:
+       return jsonify({"status": "error", "message": "任务未找到。"}), 404
+   
+   response = {"task_id": task_id, "status": task.get('status')}
+   if task.get('status') == 'completed':
+       response['result'] = task.get('result')
+   elif task.get('status') == 'failed':
+       response['error'] = task.get('error')
+       response['description'] = task.get('description')
+       
+   return jsonify(response)
+
+
+@file_manager_bp.route('/tasks', methods=['GET'])
+@login_required
+def get_tasks():
+   """获取所有任务的列表。"""
+   return jsonify(tasks)
+
+
+@file_manager_bp.route('/tasks/clear', methods=['POST'])
+@login_required
+def clear_completed_tasks():
+    """清除所有已完成或失败的任务。"""
+    global tasks
+    cleared_count = 0
+    tasks_to_keep = {}
+    for task_id, task_info in tasks.items():
+        if task_info.get('status') not in ['completed', 'failed']:
+            tasks_to_keep[task_id] = task_info
         else:
-            return jsonify({"status": "error", "message": "无法压缩非文件或文件夹的路径。"}), 400
-        
-        return jsonify({"status": "success", "message": f"'{req_path}' 已成功压缩为 '{os.path.basename(archive_name)}'。"}), 200
-    except Exception as e:
-        return jsonify({"status": "error", "message": str(e)}), 500
+            cleared_count += 1
+    
+    tasks = tasks_to_keep
+    
+    return jsonify({"status": "success", "message": f"清除了 {cleared_count} 个已完成的任务。"})
+
 
 @file_manager_bp.route('/files/decompress', methods=['POST'])
 @login_required

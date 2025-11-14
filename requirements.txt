@@ -4,3 +4,4 @@ psutil
 eventlet
 Werkzeug
 python-dotenv
+Flask-APScheduler

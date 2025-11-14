@@ -193,9 +193,33 @@
             border: 1px solid #ccc;
             border-radius: 4px;
         }
+
+        /* 通知样式 */
+        #notification-container {
+            position: fixed;
+            top: 20px;
+            right: 20px;
+            z-index: 1050;
+            width: 300px;
+        }
+        .notification {
+            padding: 15px;
+            margin-bottom: 10px;
+            border-radius: 5px;
+            color: white;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.2);
+            opacity: 0.9;
+            transition: opacity 0.5s, transform 0.5s;
+        }
+        .notification.success { background-color: #28a745; }
+        .notification.error { background-color: #dc3545; }
+        .notification.info { background-color: #17a2b8; }
+        .notification.warning { background-color: #ffc107; color: #333; }
+
     </style>
 </head>
 <body>
+    <div id="notification-container"></div>
     <div class="container">
         <h1>文件管理器</h1>
         <p><a href="{{ base_path }}/logout">退出登录</a></p>
@@ -345,6 +369,40 @@
     </div>
 
     <script>
+        // --- 通知系统 ---
+        let isDismissListenerActive = false;
+
+        function dismissAllNotifications() {
+            document.querySelectorAll('.notification').forEach(notification => {
+                notification.style.opacity = '0';
+                notification.style.transform = 'translateX(100%)';
+                setTimeout(() => notification.remove(), 500);
+            });
+            isDismissListenerActive = false; // 重置监听器状态
+        }
+
+        function showNotification(message, type = 'info') {
+            const container = document.getElementById('notification-container');
+            const notification = document.createElement('div');
+            notification.className = `notification ${type}`;
+            notification.textContent = message;
+            
+            container.appendChild(notification);
+
+            // 如果还没有设置“交互后消失”的监听器，则设置一个
+            if (!isDismissListenerActive) {
+                isDismissListenerActive = true;
+                const dismissHandler = () => {
+                    dismissAllNotifications();
+                    document.removeEventListener('mousedown', dismissHandler);
+                    document.removeEventListener('keydown', dismissHandler);
+                };
+                // 监听鼠标或键盘事件，一旦触发就移除所有通知
+                document.addEventListener('mousedown', dismissHandler);
+                document.addEventListener('keydown', dismissHandler);
+            }
+        }
+
         const basePath = '{{ base_path }}';
         let currentEditingFilePath = ''; // 用于保存当前编辑的文件路径
         let currentPermissionsPath = ''; // 用于保存当前设置权限的文件路径
@@ -390,7 +448,7 @@
         function searchFiles() {
             const query = document.getElementById('search-query').value.trim();
             if (!query) {
-                alert('请输入搜索内容。');
+                showNotification('请输入搜索内容。', 'warning');
                 return;
             }
             fetchFiles(currentPath, 1, true, query);
@@ -416,7 +474,7 @@
                 fileList.innerHTML = ''; // 清空现有列表
 
                 if (data.status === 'error') {
-                    alert('错误: ' + data.message);
+                    showNotification('错误: ' + data.message, 'error');
                     return;
                 }
 
@@ -519,7 +577,7 @@
                 });
             } catch (error) {
                 console.error('Error fetching files:', error);
-                alert('获取文件列表时发生错误。');
+                showNotification('获取文件列表时发生错误。', 'error');
             }
         }
         
@@ -546,7 +604,7 @@
             const path = currentPath ? `${currentPath}/${folderName}` : folderName;
 
             if (!folderName) {
-                alert('请输入文件夹名称。');
+                showNotification('请输入文件夹名称。', 'warning');
                 return;
             }
 
@@ -558,15 +616,15 @@
                 });
                 const result = await response.json();
                 if (result.status === 'success') {
-                    alert(result.message);
+                    showNotification(result.message, 'success');
                     folderNameInput.value = '';
                     fetchFiles(currentPath);
                 } else {
-                    alert('创建失败: ' + result.message);
+                    showNotification('创建失败: ' + result.message, 'error');
                 }
             } catch (error) {
                 console.error('Error creating folder:', error);
-                alert('创建文件夹时发生错误。');
+                showNotification('创建文件夹时发生错误。', 'error');
             }
         }
 
@@ -586,14 +644,14 @@
                 });
                 const result = await response.json();
                 if (result.status === 'success') {
-                    alert(result.message);
+                    showNotification(result.message, 'success');
                     fetchFiles(currentPath);
                 } else {
-                    alert('重命名失败: ' + result.message);
+                    showNotification('重命名失败: ' + result.message, 'error');
                 }
             } catch (error) {
                 console.error('Error renaming file:', error);
-                alert('重命名文件时发生错误。');
+                showNotification('重命名文件时发生错误。', 'error');
             }
         }
 
@@ -609,14 +667,14 @@
                 });
                 const result = await response.json();
                 if (result.status === 'success') {
-                    alert(result.message);
+                    showNotification(result.message, 'success');
                     fetchFiles(currentPath);
                 } else {
-                    alert('删除失败: ' + result.message);
+                    showNotification('删除失败: ' + result.message, 'error');
                 }
             } catch (error) {
                 console.error('Error deleting file:', error);
-                alert('删除文件时发生错误。');
+                showNotification('删除文件时发生错误。', 'error');
             }
         }
 
@@ -625,7 +683,7 @@
             const file = fileInput.files[0];
 
             if (!file) {
-                alert('请选择一个文件。');
+                showNotification('请选择一个文件。', 'warning');
                 return;
             }
 
@@ -640,14 +698,14 @@
                 });
                 const result = await response.json();
                 if (result.status === 'success') {
-                    alert(result.message);
+                    showNotification(result.message, 'success');
                     fetchFiles(currentPath);
                 } else {
-                    alert('上传失败: ' + result.message);
+                    showNotification('上传失败: ' + result.message, 'error');
                 }
             } catch (error) {
                 console.error('Error uploading file:', error);
-                alert('上传文件时发生错误。');
+                showNotification('上传文件时发生错误。', 'error');
             }
         }
 
@@ -668,16 +726,16 @@
                 });
                 const result = await response.json();
                 if (result.status === 'success') {
-                    alert(result.message);
+                    showNotification(result.message, 'success');
                     fetchFiles(currentPath); // 刷新文件列表
                     // 自动打开新创建的文件进行编辑
                     openFileInEditor(filePath);
                 } else {
-                    alert('创建新文件失败: ' + result.message);
+                    showNotification('创建新文件失败: ' + result.message, 'error');
                 }
             } catch (error) {
                 console.error('Error creating new file:', error);
-                alert('创建新文件时发生错误。');
+                showNotification('创建新文件时发生错误。', 'error');
             }
         }
 
@@ -692,23 +750,23 @@
                     currentEditingFilePath = filePath; // 保存当前编辑的文件路径
                     
                     if (data.truncated) {
-                        alert("文件过大，仅显示部分内容以供预览。保存操作将覆盖整个文件。");
+                        showNotification("文件过大，仅显示部分内容以供预览。保存操作将覆盖整个文件。", 'warning');
                     }
 
                     document.getElementById('file-editor-modal').style.display = 'block'; // 显示模态框
                 } else {
-                    alert('读取文件失败: ' + data.message);
+                    showNotification('读取文件失败: ' + data.message, 'error');
                 }
             } catch (error) {
                 console.error('Error opening file in editor:', error);
-                alert('打开文件编辑器时发生错误。');
+                showNotification('打开文件编辑器时发生错误。', 'error');
             }
         }
 
         async function saveFileContent() {
             const content = document.getElementById('editor-textarea').value;
             if (!currentEditingFilePath) {
-                alert('没有要保存的文件路径。');
+                showNotification('没有要保存的文件路径。', 'error');
                 return;
             }
 
@@ -720,15 +778,15 @@
                 });
                 const result = await response.json();
                 if (result.status === 'success') {
-                    alert(result.message);
+                    showNotification(result.message, 'success');
                     closeEditorModal(); // 保存成功后关闭编辑器
                     fetchFiles(currentPath); // 刷新文件列表以更新文件大小/修改时间
                 } else {
-                    alert('保存文件失败: ' + result.message);
+                    showNotification('保存文件失败: ' + result.message, 'error');
                 }
             } catch (error) {
                 console.error('Error saving file content:', error);
-                alert('保存文件内容时发生错误。');
+                showNotification('保存文件内容时发生错误。', 'error');
             }
         }
 
@@ -753,11 +811,11 @@
                     document.getElementById('octal-permission').value = octal;
                     updateCheckboxesFromOctal(octal);
                 } else {
-                    alert('获取权限失败: ' + data.message);
+                    showNotification('获取权限失败: ' + data.message, 'error');
                 }
             } catch (error) {
                 console.error('Error fetching permissions:', error);
-                alert('获取权限时发生错误。');
+                showNotification('获取权限时发生错误。', 'error');
             }
             document.getElementById('permissions-modal').style.display = 'block';
         }
@@ -770,7 +828,7 @@
         async function savePermissions() {
             const octalInput = document.getElementById('octal-permission').value.trim();
             if (!octalInput.match(/^[0-7]{3,4}$/)) {
-                alert('请输入有效的3或4位八进制权限码 (例如 755)。');
+                showNotification('请输入有效的3或4位八进制权限码 (例如 755)。', 'warning');
                 return;
             }
 
@@ -782,15 +840,15 @@
                 });
                 const result = await response.json();
                 if (result.status === 'success') {
-                    alert(result.message);
+                    showNotification(result.message, 'success');
                     closePermissionsModal();
                     fetchFiles(currentPath); // 刷新文件列表以更新权限显示
                 } else {
-                    alert('保存权限失败: ' + result.message);
+                    showNotification('保存权限失败: ' + result.message, 'error');
                 }
             } catch (error) {
                 console.error('Error saving permissions:', error);
-                alert('保存权限时发生错误。');
+                showNotification('保存权限时发生错误。', 'error');
             }
         }
 
@@ -872,7 +930,7 @@
         async function performCompress() {
             const format = document.getElementById('compress-format').value;
             if (!currentCompressPath) {
-                alert('没有要压缩的文件或文件夹路径。');
+                showNotification('没有要压缩的文件或文件夹路径。', 'error');
                 return;
             }
 
@@ -891,11 +949,11 @@
                     pollTaskStatus(result.task_id, taskDescription);
                 } else {
                     const result = await response.json();
-                    alert('提交压缩任务失败: ' + result.message);
+                    showNotification('提交压缩任务失败: ' + result.message, 'error');
                 }
             } catch (error) {
                 console.error('Error starting compression task:', error);
-                alert('开始压缩任务时发生网络错误。');
+                showNotification('开始压缩任务时发生网络错误。', 'error');
             }
         }
 
@@ -989,7 +1047,7 @@
             try {
                 const response = await fetch(`${basePath}/file_manager/tasks/clear`, { method: 'POST' });
                 const result = await response.json();
-                alert(result.message);
+                showNotification(result.message, 'success');
                 // 从UI上移除所有已完成/失败的任务
                 document.querySelectorAll('.status-completed, .status-failed').forEach(el => {
                     const taskItem = el.closest('.task-item');
@@ -1002,6 +1060,7 @@
                 }
             } catch (error) {
                 console.error('Error clearing tasks:', error);
+                showNotification('清理任务时出错。', 'error');
             }
         }
 
@@ -1018,7 +1077,7 @@
 
         async function performDecompress() {
             if (!currentDecompressPath) {
-                alert('没有要解压的文件路径。');
+                showNotification('没有要解压的文件路径。', 'error');
                 return;
             }
 
@@ -1030,15 +1089,15 @@
                 });
                 const result = await response.json();
                 if (result.status === 'success') {
-                    alert(result.message);
+                    showNotification(result.message, 'success');
                     closeDecompressModal();
                     fetchFiles(currentPath); // 刷新文件列表
                 } else {
-                    alert('解压失败: ' + result.message);
+                    showNotification('解压失败: ' + result.message, 'error');
                 }
             } catch (error) {
                 console.error('Error decompressing file:', error);
-                alert('解压时发生错误。');
+                showNotification('解压时发生错误。', 'error');
             }
         }
 
@@ -1097,10 +1156,11 @@
                 if (result.status === 'success') {
                     fetchBookmarks(); // 重新加载书签
                 } else {
-                    alert('添加书签失败: ' + result.message);
+                    showNotification('添加书签失败: ' + result.message, 'error');
                 }
             } catch (error) {
                 console.error('Error adding bookmark:', error);
+                showNotification('添加书签时出错。', 'error');
             }
         }
 
@@ -1118,10 +1178,11 @@
                 if (result.status === 'success') {
                     fetchBookmarks(); // 重新加载书签
                 } else {
-                    alert('删除书签失败: ' + result.message);
+                    showNotification('删除书签失败: ' + result.message, 'error');
                 }
             } catch (error) {
                 console.error('Error deleting bookmark:', error);
+                showNotification('删除书签时出错。', 'error');
             }
         }
     </script>
@@ -1168,7 +1229,7 @@
         async function batchDelete() {
             const paths = getSelectedFiles();
             if (paths.length === 0) {
-                alert('请至少选择一个文件或文件夹。');
+                showNotification('请至少选择一个文件或文件夹。', 'warning');
                 return;
             }
 
@@ -1190,11 +1251,11 @@
                     pollTaskStatus(result.task_id, taskDescription);
                 } else {
                     const result = await response.json();
-                    alert('提交删除任务失败: ' + result.message);
+                    showNotification('提交删除任务失败: ' + result.message, 'error');
                 }
             } catch (error) {
                 console.error('Error during batch delete:', error);
-                alert('批量删除时发生网络错误。');
+                showNotification('批量删除时发生网络错误。', 'error');
             }
             // 清理UI
             document.querySelectorAll('#file-list .file-checkbox:checked').forEach(c => c.checked = false);
@@ -1208,30 +1269,30 @@
         function copySelected() {
             const paths = getSelectedFiles();
             if (paths.length === 0) {
-                alert('请选择要复制的项目。');
+                showNotification('请选择要复制的项目。', 'warning');
                 return;
             }
             clipboard.type = 'copy';
             clipboard.paths = paths;
-            alert(`已复制 ${paths.length} 个项目。`);
+            showNotification(`已复制 ${paths.length} 个项目。`, 'info');
             updateBatchActionsVisibility(); // 显示粘贴按钮
         }
 
         function cutSelected() {
             const paths = getSelectedFiles();
             if (paths.length === 0) {
-                alert('请选择要剪切的项目。');
+                showNotification('请选择要剪切的项目。', 'warning');
                 return;
             }
             clipboard.type = 'move';
             clipboard.paths = paths;
-            alert(`已剪切 ${paths.length} 个项目。`);
+            showNotification(`已剪切 ${paths.length} 个项目。`, 'info');
             updateBatchActionsVisibility(); // 显示粘贴按钮
         }
 
         async function paste() {
             if (clipboard.paths.length === 0) {
-                alert('剪贴板为空。');
+                showNotification('剪贴板为空。', 'warning');
                 return;
             }
             
@@ -1254,11 +1315,11 @@
                     pollTaskStatus(result.task_id, taskDescription);
                 } else {
                     const result = await response.json();
-                    alert(`提交 ${operation} 任务失败: ` + result.message);
+                    showNotification(`提交 ${operation} 任务失败: ` + result.message, 'error');
                 }
             } catch (error) {
                 console.error(`Error during ${operation}:`, error);
-                alert(`${operation} 操作期间发生网络错误。`);
+                showNotification(`${operation} 操作期间发生网络错误。`, 'error');
             }
 
             // 操作后清空剪贴板

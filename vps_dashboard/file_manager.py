@@ -7,7 +7,6 @@ import json
 import string
 import uuid
 from flask import Blueprint, render_template, jsonify, request, send_from_directory, current_app
-from werkzeug.utils import secure_filename
 from .utils import login_required, _get_safe_path, is_admin
 
 file_manager_bp = Blueprint('file_manager', __name__, url_prefix='/file_manager')
@@ -365,7 +364,11 @@ def upload_file():
             return error_response
 
         if file:
-            filename = secure_filename(file.filename)
+            # 使用 os.path.basename 来获取文件名，以保留非 ASCII 字符并防止目录遍历
+            filename = os.path.basename(file.filename)
+            if not filename:
+                return jsonify({"status": "error", "message": "无效的文件名。"}), 400
+            
             file.save(os.path.join(full_path, filename))
             return jsonify({"status": "success", "message": f"File {filename} uploaded successfully to {req_path}"})
 

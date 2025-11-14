@@ -149,6 +149,115 @@ def delete_file():
     except Exception as e:
         return jsonify({"status": "error", "message": str(e)}), 500
 
+@file_manager_bp.route('/files/batch-delete', methods=['POST'])
+@login_required
+def batch_delete_files():
+   """批量删除文件或文件夹。"""
+   try:
+       paths = request.json.get('paths', [])
+       if not paths:
+           return jsonify({"status": "error", "message": "未提供要删除的路径。"}), 400
+
+       success_count = 0
+       errors = []
+
+       for path in paths:
+           try:
+               full_path, error_response = _get_safe_path(path, check_exists=True)
+               if error_response:
+                   errors.append(f"路径 '{path}' 无效或无权限。")
+                   continue
+
+               if os.path.isfile(full_path):
+                   os.remove(full_path)
+                   success_count += 1
+               elif os.path.isdir(full_path):
+                   shutil.rmtree(full_path)
+                   success_count += 1
+           except Exception as e:
+               errors.append(f"删除 '{path}' 失败: {str(e)}")
+
+       message = f"成功删除 {success_count} 个项目。"
+       if errors:
+           message += f" {len(errors)} 个项目删除失败。详情: " + "; ".join(errors)
+           return jsonify({"status": "partial_success", "message": message, "errors": errors})
+       
+       return jsonify({"status": "success", "message": message})
+
+   except Exception as e:
+       return jsonify({"status": "error", "message": f"批量删除操作期间发生意外错误: {str(e)}"}), 500
+
+def _handle_file_operation(operation, sources, destination):
+   """
+   辅助函数，用于处理文件/文件夹的复制或移动操作。
+   :param operation: 'copy' 或 'move'
+   :param sources: 源路径列表
+   :param destination: 目标目录路径
+   """
+   success_count = 0
+   errors = []
+
+   # 1. 验证目标路径
+   dest_full_path, error_response = _get_safe_path(destination, check_exists=True, is_dir=True)
+   if error_response:
+       return jsonify({"status": "error", "message": f"无效的目标路径: {destination}"}), 500
+
+   for src_rel_path in sources:
+       try:
+           # 2. 验证源路径
+           src_full_path, error_response = _get_safe_path(src_rel_path, check_exists=True)
+           if error_response:
+               errors.append(f"源路径 '{src_rel_path}' 无效或无权限。")
+               continue
+
+           # 3. 构建最终的目标路径
+           base_name = os.path.basename(src_full_path)
+           final_dest_path = os.path.join(dest_full_path, base_name)
+
+           # 4. 检查目标路径是否已存在
+           if os.path.exists(final_dest_path):
+               errors.append(f"目标路径 '{final_dest_path.replace(os.path.sep, '/')}' 已存在。")
+               continue
+           
+           # 5. 执行操作
+           if operation == 'copy':
+               if os.path.isdir(src_full_path):
+                   shutil.copytree(src_full_path, final_dest_path)
+               else:
+                   shutil.copy2(src_full_path, final_dest_path)
+           elif operation == 'move':
+               shutil.move(src_full_path, final_dest_path)
+           
+           success_count += 1
+
+       except Exception as e:
+           errors.append(f"处理 '{src_rel_path}' 时出错: {str(e)}")
+
+   message = f"成功{operation}了 {success_count} 个项目到 '{destination}'。"
+   if errors:
+       message += f" {len(errors)} 个项目失败。详情: " + "; ".join(errors)
+       return jsonify({"status": "partial_success", "message": message, "errors": errors})
+   
+   return jsonify({"status": "success", "message": message})
+
+
+@file_manager_bp.route('/files/copy', methods=['POST'])
+@login_required
+def copy_files():
+   """复制一个或多个文件/文件夹到指定位置。"""
+   sources = request.json.get('sources', [])
+   destination = request.json.get('destination', '')
+   return _handle_file_operation('copy', sources, destination)
+
+
+@file_manager_bp.route('/files/move', methods=['POST'])
+@login_required
+def move_files():
+   """移动一个或多个文件/文件夹到指定位置。"""
+   sources = request.json.get('sources', [])
+   destination = request.json.get('destination', '')
+   return _handle_file_operation('move', sources, destination)
+
 @file_manager_bp.route('/files/upload', methods=['POST'])
 @login_required
 def upload_file():

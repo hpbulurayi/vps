@@ -18,6 +18,17 @@
         .file-actions input[type="file"] { background-color: #28a745; }
         .file-actions input[type="file"]:hover { background-color: #218838; }
 
+        .batch-actions {
+            margin-bottom: 1em;
+            padding: 10px;
+            background-color: #e9ecef;
+            border-radius: 5px;
+            display: none; /* Initially hidden */
+        }
+        .batch-actions button {
+            margin-right: 10px;
+        }
+
         table { width: 100%; border-collapse: collapse; margin-top: 1em; }
         th, td { padding: 8px; border: 1px solid #ddd; text-align: left; }
         th { background-color: #f2f2f2; }
@@ -185,9 +196,17 @@
             <button onclick="fetchFiles(currentPath, 1)">清除搜索</button>
         </div>
 
+        <div id="batch-actions-container" class="batch-actions">
+            <button onclick="batchDelete()">批量删除</button>
+            <button onclick="copySelected()">复制</button>
+            <button onclick="cutSelected()">剪切</button>
+            <button onclick="paste()" id="paste-button" style="display: none;">粘贴</button>
+        </div>
+
         <table>
             <thead>
                 <tr>
+                    <th><input type="checkbox" id="select-all-checkbox"></th>
                     <th>名称</th>
                     <th>类型</th>
                     <th>大小</th>
@@ -295,6 +314,10 @@
         let currentPage = 1;
         let totalPages = 1;
         let currentPath = '';
+        let clipboard = {
+            type: null, // 'copy' or 'cut'
+            paths: []
+        };
 
         document.addEventListener('DOMContentLoaded', () => {
             fetchFiles('');
@@ -313,6 +336,14 @@
                 if (event.key === 'Enter') {
                     searchFiles();
                 }
+            });
+
+            // 全选复选框逻辑
+            document.getElementById('select-all-checkbox').addEventListener('change', (event) => {
+                document.querySelectorAll('#file-list .file-checkbox').forEach(checkbox => {
+                    checkbox.checked = event.target.checked;
+                });
+                updateBatchActionsVisibility();
             });
         });
 
@@ -357,6 +388,17 @@
 
                 files.forEach(file => {
                     const row = fileList.insertRow();
+
+                    // Checkbox cell
+                    const checkboxCell = row.insertCell();
+                    if (file.name !== '..') {
+                        const checkbox = document.createElement('input');
+                        checkbox.type = 'checkbox';
+                        checkbox.className = 'file-checkbox';
+                        checkbox.dataset.path = file.path;
+                        checkbox.addEventListener('change', updateBatchActionsVisibility);
+                        checkboxCell.appendChild(checkbox);
+                    }
                     
                     const nameCell = row.insertCell();
                     nameCell.className = 'file-item-name';
@@ -933,6 +975,137 @@
                 console.error('Error deleting bookmark:', error);
             }
         }
+    </script>
+
+    <script>
+        // --- 批量操作相关函数 ---
+
+        function updateBatchActionsVisibility() {
+            const selectedFiles = getSelectedFiles();
+            const container = document.getElementById('batch-actions-container');
+            const pasteButton = document.getElementById('paste-button');
+
+            if (selectedFiles.length > 0) {
+                container.style.display = 'block';
+            } else {
+                container.style.display = 'none';
+            }
+
+            // 更新全选框的状态
+            const allCheckboxes = document.querySelectorAll('#file-list .file-checkbox');
+            const selectAllCheckbox = document.getElementById('select-all-checkbox');
+            if (allCheckboxes.length > 0 && selectedFiles.length === allCheckboxes.length) {
+                selectAllCheckbox.checked = true;
+                selectAllCheckbox.indeterminate = false;
+            } else if (selectedFiles.length > 0) {
+                selectAllCheckbox.indeterminate = true;
+            } else {
+                selectAllCheckbox.checked = false;
+                selectAllCheckbox.indeterminate = false;
+            }
+
+            // 控制粘贴按钮的显示
+            pasteButton.style.display = clipboard.paths.length > 0 ? 'inline-block' : 'none';
+        }
+
+        function getSelectedFiles() {
+            const selectedFiles = [];
+            document.querySelectorAll('#file-list .file-checkbox:checked').forEach(checkbox => {
+                selectedFiles.push(checkbox.dataset.path);
+            });
+            return selectedFiles;
+        }
+
+        async function batchDelete() {
+            const paths = getSelectedFiles();
+            if (paths.length === 0) {
+                alert('请至少选择一个文件或文件夹。');
+                return;
+            }
+
+            if (!confirm(`确定要删除选中的 ${paths.length} 个项目吗？此操作不可逆！`)) {
+                return;
+            }
+
+            try {
+                const response = await fetch(`${basePath}/file_manager/files/batch-delete`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ paths: paths })
+                });
+                const result = await response.json();
+                
+                alert(result.message);
+
+                if (result.status === 'success' || result.status === 'partial_success') {
+                    fetchFiles(currentPath); // 刷新文件列表
+                    document.getElementById('select-all-checkbox').checked = false; // 取消全选
+                    updateBatchActionsVisibility();
+                }
+            } catch (error) {
+                console.error('Error during batch delete:', error);
+                alert('批量删除时发生网络错误。');
+            }
+        }
+
+        function copySelected() {
+            const paths = getSelectedFiles();
+            if (paths.length === 0) {
+                alert('请选择要复制的项目。');
+                return;
+            }
+            clipboard.type = 'copy';
+            clipboard.paths = paths;
+            alert(`已复制 ${paths.length} 个项目。`);
+            updateBatchActionsVisibility(); // 显示粘贴按钮
+        }
+
+        function cutSelected() {
+            const paths = getSelectedFiles();
+            if (paths.length === 0) {
+                alert('请选择要剪切的项目。');
+                return;
+            }
+            clipboard.type = 'cut';
+            clipboard.paths = paths;
+            alert(`已剪切 ${paths.length} 个项目。`);
+            updateBatchActionsVisibility(); // 显示粘贴按钮
+        }
+
+        async function paste() {
+            if (clipboard.paths.length === 0) {
+                alert('剪贴板为空。');
+                return;
+            }
+            
+            const destination = currentPath;
+            const operation = clipboard.type;
+            const paths = clipboard.paths;
+
+            try {
+                const response = await fetch(`${basePath}/file_manager/files/${operation}`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ sources: paths, destination: destination })
+                });
+                const result = await response.json();
+                
+                alert(result.message);
+
+                if (result.status === 'success' || result.status === 'partial_success') {
+                    fetchFiles(currentPath); // 刷新
+                }
+            } catch (error) {
+                console.error(`Error during ${operation}:`, error);
+                alert(`${operation} 操作期间发生网络错误。`);
+            }
+
+            // 操作后清空剪贴板
+            clipboard.type = null;
+            clipboard.paths = [];
+            updateBatchActionsVisibility();
+        }
+
     </script>
 </body>
 </html>
